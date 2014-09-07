@@ -14,6 +14,7 @@ EndProject
 Global
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
 		sqlite3\sqlite3.Shared\sqlite3.Shared.vcxitems*{ed5de1f9-c9e7-4dab-86af-de402678ced2}*SharedItemsImports = 4
+		sqlite3\sqlite3.Shared\sqlite3.Shared.vcxitems*{ea2e2034-e3ae-4bd2-8db1-6c6576d1237a}*SharedItemsImports = 4
 		sqlite3\sqlite3.Shared\sqlite3.Shared.vcxitems*{44cf8af4-4406-43f2-9964-66030ac4c52b}*SharedItemsImports = 9
 	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
