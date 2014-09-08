@@ -34,3 +34,8 @@ conn.dispose;
 ### Use this library
 
 Just build the solution and copy those dll files to your own solution. I wanna make this more easy later
+
+## License
+
+The same as wxSqlite3.
+
