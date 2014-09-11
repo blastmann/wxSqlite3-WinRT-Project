@@ -31,9 +31,38 @@ conn.dispose;
 
 ```
 
-### Use this library
+### Build and pack into VSIX
 
-Just build the solution and copy those dll files to your own solution. I wanna make this more easy later
+Open the `cmdbuild` folder, I just pack all you need in this folder. In `tool`, you can run `build-all-msvc.bat` under `VS2013 x86 Native Tools Command Prompt`. Like this:
+
+``` batch
+# If you want to build WinRT 8.1 ver, you should set "PLATFORMS=x86 x86_amd64 x86_arm"
+# If you want to build WP8.1 ver, set "PLATFORMS=x86 x86_arm"
+SET PLATFORMS=x86 x86_amd64 x86_arm
+build-all-msvc.bat build
+```
+
+You may need to install ActiveTcl 8.5 because there are some tcl script files to run.
+
+If you want 128-bit AES encryption, you can set `CODEC_TYPE=CODEC_TYPE_AES128` in `Makefile.msc`.
+
+For WP81, you need to set `USE_WP81_OPTS=1` in `Makefile.msc`.
+
+When finished compiled, you may want to pack it into VSIX.
+
+``` batch
+# for WinRT81
+tclsh85 mkvsix.tcl ..\build .. WinRT81 "x86,x64,ARM" 
+
+# for WP81
+tclsh85 mkvsix.tcl ..\build .. WP81 "x86,ARM" 
+```
+
+After that, you just get two VSIX plugins. Install and enjoy.
+
+### PS
+
+The VSIX package is under SQLite 3.8.5, Visual Studio may notifies you for updating to 3.8.6. If you update it, you will lose encryption function.
 
 ## License
 
