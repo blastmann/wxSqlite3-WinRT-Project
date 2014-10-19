@@ -58,10 +58,10 @@ When finished compiled, you may want to pack it into VSIX.
 
 ``` batch
 # for WinRT81
-tclsh85 mkvsix.tcl ..\build .. WinRT81 "x86,x64,ARM" 
+tclsh85 mkvsix.tcl ..\build .. WinRT81 "x86,x64,ARM" 2013
 
 # for WP81
-tclsh85 mkvsix.tcl ..\build .. WP81 "x86,ARM" 
+tclsh85 mkvsix.tcl ..\build .. WP81 "x86,ARM" 2013
 ```
 
 After that, you just get two VSIX plugins. Install and enjoy.
