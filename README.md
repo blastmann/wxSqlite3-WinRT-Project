@@ -7,6 +7,12 @@ In SQLite-Net, it uses P/Invoke to import the SQLite functions. Maybe I will add
 
 ## HOW TO?
 
+### Install
+
+There are precompiled packages in 'cmdbuild/build' and 'cmdbuild/build-wp' folder. You can install and use like the original Sqlite package.
+
+I recommend you to use the VSIX packages, rather than reference the solution directly.
+
 ### Encrypt/Decrypt?
 
 Right now, you can use the SQLite-Net source files in this project. It's already have a encrypt/decrypt porting. You can just call the `SetDbkey(string key)` to encrypt your database. After that, you can call `Key(string key)` to decrypt after you open your database.
@@ -59,10 +65,6 @@ tclsh85 mkvsix.tcl ..\build .. WP81 "x86,ARM"
 ```
 
 After that, you just get two VSIX plugins. Install and enjoy.
-
-### PS
-
-The VSIX package is under SQLite 3.8.5, Visual Studio may notifies you for updating to 3.8.6. If you update it, you will lose encryption function.
 
 ## License
 
