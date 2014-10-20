@@ -15,6 +15,21 @@
 #include "sqliteInt.h"
 
 /*
+** If the strchrnul() library function is available, then set
+** HAVE_STRCHRNUL.  If that routine is not available, this module
+** will supply its own.  The built-in version is slower than
+** the glibc version so the glibc version is definitely preferred.
+*/
+#if !defined(HAVE_STRCHRNUL)
+# if defined(linux)
+#  define HAVE_STRCHRNUL 1
+# else
+#  define HAVE_STRCHRNUL 0
+# endif
+#endif
+
+
+/*
 ** Conversion types fall into various categories as defined by the
 ** following enumeration.
 */
@@ -224,9 +239,13 @@ void sqlite3VXPrintf(
   for(; (c=(*fmt))!=0; ++fmt){
     if( c!='%' ){
       bufpt = (char *)fmt;
-      while( (c=(*++fmt))!='%' && c!=0 ){};
+#if HAVE_STRCHRNUL
+      fmt = strchrnul(fmt, '%');
+#else
+      do{ fmt++; }while( *fmt && *fmt != '%' );
+#endif
       sqlite3StrAccumAppend(pAccum, bufpt, (int)(fmt - bufpt));
-      if( c==0 ) break;
+      if( *fmt==0 ) break;
     }
     if( (c=(*++fmt))==0 ){
       sqlite3StrAccumAppend(pAccum, "%", 1);
@@ -784,7 +803,7 @@ void sqlite3AppendSpace(StrAccum *p, int N){
 ** work (enlarging the buffer) using tail recursion, so that the
 ** sqlite3StrAccumAppend() routine can use fast calling semantics.
 */
-static void enlargeAndAppend(StrAccum *p, const char *z, int N){
+static void SQLITE_NOINLINE enlargeAndAppend(StrAccum *p, const char *z, int N){
   N = sqlite3StrAccumEnlarge(p, N);
   if( N>0 ){
     memcpy(&p->zText[p->nChar], z, N);
@@ -803,11 +822,11 @@ void sqlite3StrAccumAppend(StrAccum *p, const char *z, int N){
   assert( p->accError==0 || p->nAlloc==0 );
   if( p->nChar+N >= p->nAlloc ){
     enlargeAndAppend(p,z,N);
-    return;
+  }else{
+    assert( p->zText );
+    p->nChar += N;
+    memcpy(&p->zText[p->nChar-N], z, N);
   }
-  assert( p->zText );
-  memcpy(&p->zText[p->nChar], z, N);
-  p->nChar += N;
 }
 
 /*
@@ -904,7 +923,7 @@ char *sqlite3MPrintf(sqlite3 *db, const char *zFormat, ...){
 
 /*
 ** Like sqlite3MPrintf(), but call sqlite3DbFree() on zStr after formatting
-** the string and before returnning.  This routine is intended to be used
+** the string and before returning.  This routine is intended to be used
 ** to modify an existing string.  For example:
 **
 **       x = sqlite3MPrintf(db, x, "prefix %s suffix", x);
@@ -1036,6 +1055,69 @@ void sqlite3DebugPrintf(const char *zFormat, ...){
   fflush(stdout);
 }
 #endif
+
+#ifdef SQLITE_DEBUG
+/*************************************************************************
+** Routines for implementing the "TreeView" display of hierarchical
+** data structures for debugging.
+**
+** The main entry points (coded elsewhere) are:
+**     sqlite3TreeViewExpr(0, pExpr, 0);
+**     sqlite3TreeViewExprList(0, pList, 0, 0);
+**     sqlite3TreeViewSelect(0, pSelect, 0);
+** Insert calls to those routines while debugging in order to display
+** a diagram of Expr, ExprList, and Select objects.
+**
+*/
+/* Add a new subitem to the tree.  The moreToFollow flag indicates that this
+** is not the last item in the tree. */
+TreeView *sqlite3TreeViewPush(TreeView *p, u8 moreToFollow){
+  if( p==0 ){
+    p = sqlite3_malloc( sizeof(*p) );
+    if( p==0 ) return 0;
+    memset(p, 0, sizeof(*p));
+  }else{
+    p->iLevel++;
+  }
+  assert( moreToFollow==0 || moreToFollow==1 );
+  if( p->iLevel<sizeof(p->bLine) ) p->bLine[p->iLevel] = moreToFollow;
+  return p;
+}
+/* Finished with one layer of the tree */
+void sqlite3TreeViewPop(TreeView *p){
+  if( p==0 ) return;
+  p->iLevel--;
+  if( p->iLevel<0 ) sqlite3_free(p);
+}
+/* Generate a single line of output for the tree, with a prefix that contains
+** all the appropriate tree lines */
+void sqlite3TreeViewLine(TreeView *p, const char *zFormat, ...){
+  va_list ap;
+  int i;
+  StrAccum acc;
+  char zBuf[500];
+  sqlite3StrAccumInit(&acc, zBuf, sizeof(zBuf), 0);
+  acc.useMalloc = 0;
+  if( p ){
+    for(i=0; i<p->iLevel && i<sizeof(p->bLine)-1; i++){
+      sqlite3StrAccumAppend(&acc, p->bLine[i] ? "|   " : "    ", 4);
+    }
+    sqlite3StrAccumAppend(&acc, p->bLine[i] ? "|-- " : "'-- ", 4);
+  }
+  va_start(ap, zFormat);
+  sqlite3VXPrintf(&acc, 0, zFormat, ap);
+  va_end(ap);
+  if( zBuf[acc.nChar-1]!='\n' ) sqlite3StrAccumAppend(&acc, "\n", 1);
+  sqlite3StrAccumFinish(&acc);
+  fprintf(stdout,"%s", zBuf);
+  fflush(stdout);
+}
+/* Shorthand for starting a new tree item that consists of a single label */
+void sqlite3TreeViewItem(TreeView *p, const char *zLabel, u8 moreToFollow){
+  p = sqlite3TreeViewPush(p, moreToFollow);
+  sqlite3TreeViewLine(p, "%s", zLabel);
+}
+#endif /* SQLITE_DEBUG */
 
 /*
 ** variable-argument wrapper around sqlite3VXPrintf().

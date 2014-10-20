@@ -103,6 +103,10 @@ static void set_options(Tcl_Interp *interp){
   Tcl_SetVar2(interp, "sqlite_options", "mmap", "0", TCL_GLOBAL_ONLY);
 #endif
 
+  Tcl_SetVar2(interp, "sqlite_options", "worker_threads", 
+      STRINGVALUE(SQLITE_MAX_WORKER_THREADS), TCL_GLOBAL_ONLY
+  );
+
 #if 1 /* def SQLITE_MEMDEBUG */
   Tcl_SetVar2(interp, "sqlite_options", "memdebug", "1", TCL_GLOBAL_ONLY);
 #else
@@ -330,7 +334,7 @@ static void set_options(Tcl_Interp *interp){
   Tcl_SetVar2(interp, "sqlite_options", "fts3", "0", TCL_GLOBAL_ONLY);
 #endif
 
-#if defined(SQLITE_ENABLE_FTS3) && defined(SQLITE_ENABLE_FTS4_UNICODE61)
+#if defined(SQLITE_ENABLE_FTS3) && !defined(SQLITE_DISABLE_FTS3_UNICODE)
   Tcl_SetVar2(interp, "sqlite_options", "fts3_unicode", "1", TCL_GLOBAL_ONLY);
 #else
   Tcl_SetVar2(interp, "sqlite_options", "fts3_unicode", "0", TCL_GLOBAL_ONLY);
@@ -599,6 +603,12 @@ Tcl_SetVar2(interp, "sqlite_options", "mergesort", "1", TCL_GLOBAL_ONLY);
   Tcl_SetVar2(interp, "sqlite_options", "secure_delete", "0", TCL_GLOBAL_ONLY);
 #endif
 
+#ifdef SQLITE_USER_AUTHENTICATION
+  Tcl_SetVar2(interp, "sqlite_options", "userauth", "1", TCL_GLOBAL_ONLY);
+#else
+  Tcl_SetVar2(interp, "sqlite_options", "userauth", "0", TCL_GLOBAL_ONLY);
+#endif
+
 #ifdef SQLITE_MULTIPLEX_EXT_OVWR
   Tcl_SetVar2(interp, "sqlite_options", "multiplex_ext_overwrite", "1", TCL_GLOBAL_ONLY);
 #else
@@ -634,6 +644,7 @@ Tcl_SetVar2(interp, "sqlite_options", "mergesort", "1", TCL_GLOBAL_ONLY);
   LINKVAR( DEFAULT_FILE_FORMAT );
   LINKVAR( MAX_ATTACHED );
   LINKVAR( MAX_DEFAULT_PAGE_SIZE );
+  LINKVAR( MAX_WORKER_THREADS );
 
   {
     static const int cv_TEMP_STORE = SQLITE_TEMP_STORE;
