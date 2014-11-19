@@ -39,6 +39,13 @@ conn.dispose;
 
 ### Build and pack into VSIX
 
+#### Preparation
+
+1. Please first install cygwin and Active Tcl 8.5. Make sure you've set environment variables correctly. 
+2. You'll need zip\unzip command at the end of making VSIX package. Just google it.
+
+#### Build your own VSIX package
+
 Open the `cmdbuild` folder, I just pack all you need in this folder. In `tool`, you can run `build-all-msvc.bat` under `VS2013 x86 Native Tools Command Prompt`. Like this:
 
 ``` batch
