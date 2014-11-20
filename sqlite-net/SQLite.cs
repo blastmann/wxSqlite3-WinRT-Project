@@ -47,6 +47,15 @@ using Sqlite3Statement = System.IntPtr;
 
 namespace SQLite
 {
+    public class sqlite_master
+    {
+        public string type { get; set; }
+        public string name { get; set; }
+        public string tbl_name { get; set; }
+        public int rootpage { get; set; }
+        public string sql { get; set; }
+    }
+
     public class SQLiteException : Exception
     {
         public SQLite3.Result Result { get; private set; }
@@ -186,6 +195,12 @@ namespace SQLite
             DatabasePath = databasePath;
 
 #if NETFX_CORE
+            DatabasePath = System.IO.Path.Combine(Windows.Storage.ApplicationData.Current.LocalFolder.Path, databasePath);
+#else
+            DatabasePath = databasePath;
+#endif
+
+#if NETFX_CORE
             SQLite3.SetDirectory(/*temp directory type*/2, Windows.Storage.ApplicationData.Current.TemporaryFolder.Path);
 #endif
 
@@ -226,7 +241,7 @@ namespace SQLite
         /// Provide a way to set or change database encryption key
         /// </summary>
         /// <param name="key"></param>
-        public void SetDbKey(string key)
+        public void SetDBKey(string key)
         {
             var r = SQLite3.Rekey(Handle, key, key.Length);
             if (r != SQLite3.Result.OK)
@@ -272,7 +287,7 @@ namespace SQLite
         /// Used to list some code that we want the MonoTouch linker
         /// to see, but that we never want to actually execute.
         /// </summary>
-        static bool _preserveDuringLinkMagic;
+        static bool _preserveDuringLinkMagic = false;
 
         /// <summary>
         /// Sets a busy handler to sleep the specified amount of time when a table is locked.
@@ -3195,13 +3210,7 @@ namespace SQLite
 
     public static class SQLite3
     {
-#if WINDOWS_APP
-        private const string sqlite_dll = "sqlite3.Windows.dll";
-#elif WINDOWS_PHONE_APP
-        private const string sqlite_dll = "sqlite3.WindowsPhone.dll";
-#else
         private const string sqlite_dll = "sqlite3";
-#endif
 
         public enum Result : int
         {

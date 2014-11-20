@@ -51,6 +51,11 @@ namespace SQLite
             return SQLiteConnectionPool.Shared.GetConnection(_connectionString, _openFlags);
         }
 
+        public void ResetConnection()
+        {
+            SQLiteConnectionPool.Shared.Reset();
+        }
+
         public Task<CreateTablesResult> CreateTableAsync<T>()
             where T : new()
         {
@@ -246,28 +251,28 @@ namespace SQLite
             });
         }
 
-        [Obsolete("Will cause a deadlock if any call in action ends up in a different thread. Use RunInTransactionAsync(Action<SQLiteConnection>) instead.")]
-        public Task RunInTransactionAsync(Action<SQLiteAsyncConnection> action)
-        {
-            return Task.Factory.StartNew(() =>
-            {
-                var conn = this.GetConnection();
-                using (conn.Lock())
-                {
-                    conn.BeginTransaction();
-                    try
-                    {
-                        action(this);
-                        conn.Commit();
-                    }
-                    catch (Exception)
-                    {
-                        conn.Rollback();
-                        throw;
-                    }
-                }
-            });
-        }
+        //[Obsolete("Will cause a deadlock if any call in action ends up in a different thread. Use RunInTransactionAsync(Action<SQLiteConnection>) instead.")]
+        //public Task RunInTransactionAsync(Action<SQLiteAsyncConnection> action)
+        //{
+        //    return Task.Factory.StartNew(() =>
+        //    {
+        //        var conn = this.GetConnection();
+        //        using (conn.Lock())
+        //        {
+        //            conn.BeginTransaction();
+        //            try
+        //            {
+        //                action(this);
+        //                conn.Commit();
+        //            }
+        //            catch (Exception)
+        //            {
+        //                conn.Rollback();
+        //                throw;
+        //            }
+        //        }
+        //    });
+        //}
 
         public Task RunInTransactionAsync(Action<SQLiteConnection> action)
         {
@@ -315,12 +320,13 @@ namespace SQLite
             });
         }
 
-        public Task<List<T>> QueryAsync<T>(string sql, params object[] args)
+        public Task<List<T>> QueryAsync<T>(string sql, bool trace = false, params object[] args)
             where T : new()
         {
             return Task<List<T>>.Factory.StartNew(() =>
             {
                 var conn = GetConnection();
+                conn.Trace = trace;
                 using (conn.Lock())
                 {
                     return conn.Query<T>(sql, args);
@@ -328,29 +334,32 @@ namespace SQLite
             });
         }
 
-
-        public Task SetDbKeyAsync(string key)
+        public void SetDBKey(string key)
         {
-            return Task.Factory.StartNew(() =>
+            var conn = GetConnection();
+            using (conn.Lock())
             {
-                var conn = GetConnection();
-                using (conn.Lock())
-                {
-                    conn.SetDbKey(key);
-                }
-            });
+                conn.SetDBKey(key);
+            }
+        }
+
+        public void Key(string key)
+        {
+            var conn = GetConnection();
+            using (conn.Lock())
+            {
+                conn.Key(key);
+            }
+        }
+
+        public Task SetDBKeyAsync(string key)
+        {
+            return Task.Factory.StartNew(() => this.SetDBKey(key));
         }
 
         public Task KeyAsync(string key)
         {
-            return Task.Factory.StartNew(() =>
-            {
-                var conn = GetConnection();
-                using (conn.Lock())
-                {
-                    conn.Key(key);
-                }
-            });
+            return Task.Factory.StartNew(() => this.Key(key));
         }
     }
 
