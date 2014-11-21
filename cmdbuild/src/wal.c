@@ -2525,7 +2525,6 @@ int sqlite3WalUndo(Wal *pWal, int (*xUndo)(void *, Pgno), void *pUndoCtx){
     }
     if( iMax!=pWal->hdr.mxFrame ) walCleanupHash(pWal);
   }
-  assert( rc==SQLITE_OK );
   return rc;
 }
 

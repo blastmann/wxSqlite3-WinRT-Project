@@ -2298,7 +2298,7 @@ case OP_Column: {
         pC->payloadSize = pC->szRow = avail = pReg->n;
         pC->aRow = (u8*)pReg->z;
       }else{
-        MemSetTypeFlag(pDest, MEM_Null);
+        sqlite3VdbeMemSetNull(pDest);
         goto op_column_out;
       }
     }else{
@@ -2441,7 +2441,7 @@ case OP_Column: {
       if( pOp->p4type==P4_MEM ){
         sqlite3VdbeMemShallowCopy(pDest, pOp->p4.pMem, MEM_Static);
       }else{
-        MemSetTypeFlag(pDest, MEM_Null);
+        sqlite3VdbeMemSetNull(pDest);
       }
       goto op_column_out;
     }
@@ -2822,11 +2822,18 @@ case OP_Savepoint: {
         db->isTransactionSavepoint = 0;
         rc = p->rc;
       }else{
+        int isSchemaChange;
         iSavepoint = db->nSavepoint - iSavepoint - 1;
         if( p1==SAVEPOINT_ROLLBACK ){
+          isSchemaChange = (db->flags & SQLITE_InternChanges)!=0;
           for(ii=0; ii<db->nDb; ii++){
-            sqlite3BtreeTripAllCursors(db->aDb[ii].pBt, SQLITE_ABORT);
+            rc = sqlite3BtreeTripAllCursors(db->aDb[ii].pBt,
+                                       SQLITE_ABORT_ROLLBACK,
+                                       isSchemaChange==0);
+            if( rc!=SQLITE_OK ) goto abort_due_to_error;
           }
+        }else{
+          isSchemaChange = 0;
         }
         for(ii=0; ii<db->nDb; ii++){
           rc = sqlite3BtreeSavepoint(db->aDb[ii].pBt, p1, iSavepoint);
@@ -2834,7 +2841,7 @@ case OP_Savepoint: {
             goto abort_due_to_error;
           }
         }
-        if( p1==SAVEPOINT_ROLLBACK && (db->flags&SQLITE_InternChanges)!=0 ){
+        if( isSchemaChange ){
           sqlite3ExpirePreparedStatements(db);
           sqlite3ResetAllSchemasOfConnection(db);
           db->flags = (db->flags | SQLITE_InternChanges);
@@ -3231,7 +3238,7 @@ case OP_OpenWrite: {
           || p->readOnly==0 );
 
   if( p->expired ){
-    rc = SQLITE_ABORT;
+    rc = SQLITE_ABORT_ROLLBACK;
     break;
   }
 
@@ -4398,6 +4405,10 @@ case OP_Rowid: {                 /* out2-prerelease */
     assert( pC->pCursor!=0 );
     rc = sqlite3VdbeCursorRestore(pC);
     if( rc ) goto abort_due_to_error;
+    if( pC->nullRow ){
+      pOut->flags = MEM_Null;
+      break;
+    }
     rc = sqlite3BtreeKeySize(pC->pCursor, &v);
     assert( rc==SQLITE_OK );  /* Always so because of CursorRestore() above */
   }

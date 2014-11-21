@@ -9,7 +9,7 @@ In SQLite-Net, it uses P/Invoke to import the SQLite functions. Maybe I will add
 
 ### Install
 
-There are precompiled packages in 'cmdbuild/build' and 'cmdbuild/build-wp' folder. You can install and use like the original Sqlite package.
+#### There are precompiled packages in `cmdbuild\packages` folder. You can install and use like the original Sqlite package.
 
 I recommend you to use the VSIX packages, rather than reference the solution directly.
 
