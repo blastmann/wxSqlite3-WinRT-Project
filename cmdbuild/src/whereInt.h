@@ -69,6 +69,8 @@ struct WhereLevel {
   int addrCont;         /* Jump here to continue with the next loop cycle */
   int addrFirst;        /* First instruction of interior of the loop */
   int addrBody;         /* Beginning of the body of this loop */
+  int iLikeRepCntr;     /* LIKE range processing counter register */
+  int addrLikeRep;      /* LIKE range processing address */
   u8 iFrom;             /* Which entry in the FROM clause */
   u8 op, p3, p5;        /* Opcode, P3 & P5 of the opcode that ends the loop */
   int p1, p2;           /* Operands of the opcode used to ends the loop */
@@ -85,6 +87,9 @@ struct WhereLevel {
   } u;
   struct WhereLoop *pWLoop;  /* The selected WhereLoop object */
   Bitmask notReady;          /* FROM entries not usable at this level */
+#ifdef SQLITE_ENABLE_STMT_SCANSTATUS
+  int addrVisit;        /* Address at which row is visited */
+#endif
 };
 
 /*
@@ -115,7 +120,6 @@ struct WhereLoop {
   union {
     struct {               /* Information for internal btree tables */
       u16 nEq;               /* Number of equality constraints */
-      u16 nSkip;             /* Number of initial index columns to skip */
       Index *pIndex;         /* Index used, or NULL */
     } btree;
     struct {               /* Information for virtual tables */
@@ -128,12 +132,13 @@ struct WhereLoop {
   } u;
   u32 wsFlags;          /* WHERE_* flags describing the plan */
   u16 nLTerm;           /* Number of entries in aLTerm[] */
+  u16 nSkip;            /* Number of NULL aLTerm[] entries */
   /**** whereLoopXfer() copies fields above ***********************/
 # define WHERE_LOOP_XFER_SZ offsetof(WhereLoop,nLSlot)
   u16 nLSlot;           /* Number of slots allocated for aLTerm[] */
   WhereTerm **aLTerm;   /* WhereTerms used */
   WhereLoop *pNextLoop; /* Next WhereLoop object in the WhereClause */
-  WhereTerm *aLTermSpace[4];  /* Initial aLTerm[] space */
+  WhereTerm *aLTermSpace[3];  /* Initial aLTerm[] space */
 };
 
 /* This object holds the prerequisites and the cost of running a
@@ -250,7 +255,7 @@ struct WhereTerm {
   } u;
   LogEst truthProb;       /* Probability of truth for this expression */
   u16 eOperator;          /* A WO_xx value describing <op> */
-  u8 wtFlags;             /* TERM_xxx bit flags.  See below */
+  u16 wtFlags;            /* TERM_xxx bit flags.  See below */
   u8 nChild;              /* Number of children that must disable us */
   WhereClause *pWC;       /* The clause this term is part of */
   Bitmask prereqRight;    /* Bitmask of tables used by pExpr->pRight */
@@ -272,6 +277,9 @@ struct WhereTerm {
 #else
 #  define TERM_VNULL    0x00   /* Disabled if not using stat3 */
 #endif
+#define TERM_LIKEOPT    0x100  /* Virtual terms from the LIKE optimization */
+#define TERM_LIKECOND   0x200  /* Conditionally this LIKE operator term */
+#define TERM_LIKE       0x400  /* The original LIKE operator */
 
 /*
 ** An instance of the WhereScan object is used as an iterator for locating
@@ -459,3 +467,4 @@ struct WhereInfo {
 #define WHERE_AUTO_INDEX   0x00004000  /* Uses an ephemeral index */
 #define WHERE_SKIPSCAN     0x00008000  /* Uses the skip-scan algorithm */
 #define WHERE_UNQ_WANTED   0x00010000  /* WHERE_ONEROW would have been helpful*/
+#define WHERE_PARTIALIDX   0x00020000  /* The automatic index is partial */

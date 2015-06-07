@@ -46,10 +46,11 @@ conn.dispose;
 
 #### Build your own VSIX package
 
-Open the `cmdbuild` folder, I just pack all you need in this folder. In `tool`, you can run `build-all-msvc.bat` under `VS2013 x86 Native Tools Command Prompt`. Like this:
+Open the `cmdbuild` folder, I just pack all you need in this folder. In `tool`, you can run `build-all-msvc.bat` under `VS2013 x86 Native Tools Command Prompt` (open `VS2015 x86 Native Tools Command Prompt` for UAP version compilation). Like this:
+
 
 ``` batch
-# If you want to build WinRT 8.1 ver, you should set "PLATFORMS=x86 x86_amd64 x86_arm"
+# If you want to build WinRT 8.1 or UAP ver, you should set "PLATFORMS=x86 x86_amd64 x86_arm"
 # If you want to build WP8.1 ver, set "PLATFORMS=x86 x86_arm"
 SET PLATFORMS=x86 x86_amd64 x86_arm
 build-all-msvc.bat build
@@ -61,6 +62,8 @@ If you want 128-bit AES encryption, you can set `CODEC_TYPE=CODEC_TYPE_AES128` i
 
 For WP81, you need to set `USE_WP81_OPTS=1` in `Makefile.msc`.
 
+For UAP, you need to set `FOR_UAP=1` in `Makefile.msc`.
+
 When finished compiled, you may want to pack it into VSIX.
 
 ``` batch
@@ -69,6 +72,10 @@ tclsh85 mkvsix.tcl ..\build .. WinRT81 "x86,x64,ARM" 2013
 
 # for WP81
 tclsh85 mkvsix.tcl ..\build .. WP81 "x86,ARM" 2013
+```
+
+# for UAP
+tclsh85 mkvsix.tcl ..\build .. UAP "x86,x64,ARM" 2015
 ```
 
 After that, you just get two VSIX plugins. Install and enjoy.

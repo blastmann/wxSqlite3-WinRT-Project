@@ -213,6 +213,7 @@ int sqlite3MemCompare(const Mem*, const Mem*, const CollSeq*);
 
 void sqlite3VdbeRecordUnpack(KeyInfo*,int,const void*,UnpackedRecord*);
 int sqlite3VdbeRecordCompare(int,const void*,UnpackedRecord*);
+int sqlite3VdbeRecordCompareWithSkip(int, const void *, UnpackedRecord *, int);
 UnpackedRecord *sqlite3VdbeAllocUnpackedRecord(KeyInfo *, char *, int, char **);
 
 typedef int (*RecordCompare)(int,const void*,UnpackedRecord*);
@@ -280,6 +281,12 @@ void sqlite3VdbeLinkSubProgram(Vdbe *, SubProgram *);
 # define VdbeCoverageAlwaysTaken(v)
 # define VdbeCoverageNeverTaken(v)
 # define VDBE_OFFSET_LINENO(x) 0
+#endif
+
+#ifdef SQLITE_ENABLE_STMT_SCANSTATUS
+void sqlite3VdbeScanStatus(Vdbe*, int, int, int, LogEst, const char*);
+#else
+# define sqlite3VdbeScanStatus(a,b,c,d,e)
 #endif
 
 #endif
