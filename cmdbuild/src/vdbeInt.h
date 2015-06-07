@@ -132,6 +132,7 @@ struct VdbeFrame {
   Vdbe *v;                /* VM this frame belongs to */
   VdbeFrame *pParent;     /* Parent of this frame, or NULL if parent is main */
   Op *aOp;                /* Program instructions for parent frame */
+  i64 *anExec;            /* Event counters from parent frame */
   Mem *aMem;              /* Array of memory cells for parent frame */
   u8 *aOnceFlag;          /* Array of OP_Once flags for parent frame */
   VdbeCursor **apCsr;     /* Array of Vdbe cursors for parent frame */
@@ -144,7 +145,8 @@ struct VdbeFrame {
   int nOnceFlag;          /* Number of entries in aOnceFlag */
   int nChildMem;          /* Number of memory cells for child frame */
   int nChildCsr;          /* Number of cursors for child frame */
-  int nChange;            /* Statement changes (Vdbe.nChanges)     */
+  int nChange;            /* Statement changes (Vdbe.nChange)     */
+  int nDbChange;          /* Value of db->nChange */
 };
 
 #define VdbeFrameMem(p) ((Mem *)&((u8 *)p)[ROUND8(sizeof(VdbeFrame))])
@@ -295,20 +297,22 @@ struct Explain {
 */
 typedef unsigned bft;  /* Bit Field Type */
 
+typedef struct ScanStatus ScanStatus;
+struct ScanStatus {
+  int addrExplain;                /* OP_Explain for loop */
+  int addrLoop;                   /* Address of "loops" counter */
+  int addrVisit;                  /* Address of "rows visited" counter */
+  int iSelectID;                  /* The "Select-ID" for this loop */
+  LogEst nEst;                    /* Estimated output rows per loop */
+  char *zName;                    /* Name of table or index */
+};
+
 /*
 ** An instance of the virtual machine.  This structure contains the complete
 ** state of the virtual machine.
 **
 ** The "sqlite3_stmt" structure pointer that is returned by sqlite3_prepare()
 ** is really a pointer to an instance of this structure.
-**
-** The Vdbe.inVtabMethod variable is set to non-zero for the duration of
-** any virtual table method invocations made by the vdbe program. It is
-** set to 2 for xDestroy method calls and 1 for all other methods. This
-** variable is used for two purposes: to allow xDestroy methods to execute
-** "DROP TABLE" statements and to prevent some nasty side effects of
-** malloc failure when SQLite is invoked recursively by a virtual table 
-** method function.
 */
 struct Vdbe {
   sqlite3 *db;            /* The database connection that owns this statement */
@@ -332,11 +336,13 @@ struct Vdbe {
   u32 cacheCtr;           /* VdbeCursor row cache generation counter */
   int pc;                 /* The program counter */
   int rc;                 /* Value to return */
+#ifdef SQLITE_DEBUG
+  int rcApp;              /* errcode set by sqlite3_result_error_code() */
+#endif
   u16 nResColumn;         /* Number of columns in one row of the result set */
   u8 errorAction;         /* Recovery action to do in case of an error */
   u8 minWriteFileFormat;  /* Minimum file format for writable database files */
   bft explain:2;          /* True if EXPLAIN present on SQL command */
-  bft inVtabMethod:2;     /* See comments above */
   bft changeCntOn:1;      /* True to update the change-counter */
   bft expired:1;          /* True if the VM needs to be recompiled */
   bft runOnlyOnce:1;      /* Automatically expire on reset */
@@ -367,6 +373,11 @@ struct Vdbe {
   int nOnceFlag;          /* Size of array aOnceFlag[] */
   u8 *aOnceFlag;          /* Flags for OP_Once */
   AuxData *pAuxData;      /* Linked list of auxdata allocations */
+#ifdef SQLITE_ENABLE_STMT_SCANSTATUS
+  i64 *anExec;            /* Number of times each op has been executed */
+  int nScan;              /* Entries in aScan[] */
+  ScanStatus *aScan;      /* Scan definitions for sqlite3_stmt_scanstatus() */
+#endif
 };
 
 /*

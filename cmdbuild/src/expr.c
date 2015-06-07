@@ -69,10 +69,11 @@ char sqlite3ExprAffinity(Expr *pExpr){
 Expr *sqlite3ExprAddCollateToken(
   Parse *pParse,           /* Parsing context */
   Expr *pExpr,             /* Add the "COLLATE" clause to this expression */
-  const Token *pCollName   /* Name of collating sequence */
+  const Token *pCollName,  /* Name of collating sequence */
+  int dequote              /* True to dequote pCollName */
 ){
   if( pCollName->n>0 ){
-    Expr *pNew = sqlite3ExprAlloc(pParse->db, TK_COLLATE, pCollName, 1);
+    Expr *pNew = sqlite3ExprAlloc(pParse->db, TK_COLLATE, pCollName, dequote);
     if( pNew ){
       pNew->pLeft = pExpr;
       pNew->flags |= EP_Collate|EP_Skip;
@@ -86,7 +87,7 @@ Expr *sqlite3ExprAddCollateString(Parse *pParse, Expr *pExpr, const char *zC){
   assert( zC!=0 );
   s.z = zC;
   s.n = sqlite3Strlen30(s.z);
-  return sqlite3ExprAddCollateToken(pParse, pExpr, &s);
+  return sqlite3ExprAddCollateToken(pParse, pExpr, &s, 0);
 }
 
 /*
@@ -132,9 +133,9 @@ CollSeq *sqlite3ExprCollSeq(Parse *pParse, Expr *pExpr){
       pColl = sqlite3GetCollSeq(pParse, ENC(db), 0, p->u.zToken);
       break;
     }
-    if( p->pTab!=0
-     && (op==TK_AGG_COLUMN || op==TK_COLUMN
+    if( (op==TK_AGG_COLUMN || op==TK_COLUMN
           || op==TK_REGISTER || op==TK_TRIGGER)
+     && p->pTab!=0
     ){
       /* op==TK_REGISTER && p->pTab!=0 happens when pExpr was originally
       ** a TK_COLUMN but was previously evaluated and cached in a register */
@@ -146,10 +147,25 @@ CollSeq *sqlite3ExprCollSeq(Parse *pParse, Expr *pExpr){
       break;
     }
     if( p->flags & EP_Collate ){
-      if( ALWAYS(p->pLeft) && (p->pLeft->flags & EP_Collate)!=0 ){
+      if( p->pLeft && (p->pLeft->flags & EP_Collate)!=0 ){
         p = p->pLeft;
       }else{
-        p = p->pRight;
+        Expr *pNext  = p->pRight;
+        /* The Expr.x union is never used at the same time as Expr.pRight */
+        assert( p->x.pList==0 || p->pRight==0 );
+        /* p->flags holds EP_Collate and p->pLeft->flags does not.  And
+        ** p->x.pSelect cannot.  So if p->x.pLeft exists, it must hold at
+        ** least one EP_Collate. Thus the following two ALWAYS. */
+        if( p->x.pList!=0 && ALWAYS(!ExprHasProperty(p, EP_xIsSelect)) ){
+          int i;
+          for(i=0; ALWAYS(i<p->x.pList->nExpr); i++){
+            if( ExprHasProperty(p->x.pList->a[i].pExpr, EP_Collate) ){
+              pNext = p->x.pList->a[i].pExpr;
+              break;
+            }
+          }
+        }
+        p = pNext;
       }
     }else{
       break;
@@ -355,6 +371,9 @@ static void heightOfSelect(Select *p, int *pnHeight){
 ** Expr.pSelect member has a height of 1. Any other expression
 ** has a height equal to the maximum height of any other 
 ** referenced Expr plus one.
+**
+** Also propagate EP_Propagate flags up from Expr.x.pList to Expr.flags,
+** if appropriate.
 */
 static void exprSetHeight(Expr *p){
   int nHeight = 0;
@@ -362,8 +381,9 @@ static void exprSetHeight(Expr *p){
   heightOfExpr(p->pRight, &nHeight);
   if( ExprHasProperty(p, EP_xIsSelect) ){
     heightOfSelect(p->x.pSelect, &nHeight);
-  }else{
+  }else if( p->x.pList ){
     heightOfExprList(p->x.pList, &nHeight);
+    p->flags |= EP_Propagate & sqlite3ExprListFlags(p->x.pList);
   }
   p->nHeight = nHeight + 1;
 }
@@ -372,8 +392,12 @@ static void exprSetHeight(Expr *p){
 ** Set the Expr.nHeight variable using the exprSetHeight() function. If
 ** the height is greater than the maximum allowed expression depth,
 ** leave an error in pParse.
+**
+** Also propagate all EP_Propagate flags from the Expr.x.pList into
+** Expr.flags. 
 */
-void sqlite3ExprSetHeight(Parse *pParse, Expr *p){
+void sqlite3ExprSetHeightAndFlags(Parse *pParse, Expr *p){
+  if( pParse->nErr ) return;
   exprSetHeight(p);
   sqlite3ExprCheckHeight(pParse, p->nHeight);
 }
@@ -387,8 +411,17 @@ int sqlite3SelectExprHeight(Select *p){
   heightOfSelect(p, &nHeight);
   return nHeight;
 }
-#else
-  #define exprSetHeight(y)
+#else /* ABOVE:  Height enforcement enabled.  BELOW: Height enforcement off */
+/*
+** Propagate all EP_Propagate flags from the Expr.x.pList into
+** Expr.flags. 
+*/
+void sqlite3ExprSetHeightAndFlags(Parse *pParse, Expr *p){
+  if( p && p->x.pList && !ExprHasProperty(p, EP_xIsSelect) ){
+    p->flags |= EP_Propagate & sqlite3ExprListFlags(p->x.pList);
+  }
+}
+#define exprSetHeight(y)
 #endif /* SQLITE_MAX_EXPR_DEPTH>0 */
 
 /*
@@ -490,11 +523,11 @@ void sqlite3ExprAttachSubtrees(
   }else{
     if( pRight ){
       pRoot->pRight = pRight;
-      pRoot->flags |= EP_Collate & pRight->flags;
+      pRoot->flags |= EP_Propagate & pRight->flags;
     }
     if( pLeft ){
       pRoot->pLeft = pLeft;
-      pRoot->flags |= EP_Collate & pLeft->flags;
+      pRoot->flags |= EP_Propagate & pLeft->flags;
     }
     exprSetHeight(pRoot);
   }
@@ -515,7 +548,7 @@ Expr *sqlite3PExpr(
   const Token *pToken     /* Argument token */
 ){
   Expr *p;
-  if( op==TK_AND && pLeft && pRight ){
+  if( op==TK_AND && pLeft && pRight && pParse->nErr==0 ){
     /* Take advantage of short-circuit false optimization for AND */
     p = sqlite3ExprAnd(pParse->db, pLeft, pRight);
   }else{
@@ -594,7 +627,7 @@ Expr *sqlite3ExprFunction(Parse *pParse, ExprList *pList, Token *pToken){
   }
   pNew->x.pList = pList;
   assert( !ExprHasProperty(pNew, EP_xIsSelect) );
-  sqlite3ExprSetHeight(pParse, pNew);
+  sqlite3ExprSetHeightAndFlags(pParse, pNew);
   return pNew;
 }
 
@@ -1210,20 +1243,40 @@ void sqlite3ExprListDelete(sqlite3 *db, ExprList *pList){
 }
 
 /*
-** These routines are Walker callbacks.  Walker.u.pi is a pointer
-** to an integer.  These routines are checking an expression to see
-** if it is a constant.  Set *Walker.u.i to 0 if the expression is
-** not constant.
+** Return the bitwise-OR of all Expr.flags fields in the given
+** ExprList.
+*/
+u32 sqlite3ExprListFlags(const ExprList *pList){
+  int i;
+  u32 m = 0;
+  if( pList ){
+    for(i=0; i<pList->nExpr; i++){
+       Expr *pExpr = pList->a[i].pExpr;
+       if( ALWAYS(pExpr) ) m |= pExpr->flags;
+    }
+  }
+  return m;
+}
+
+/*
+** These routines are Walker callbacks used to check expressions to
+** see if they are "constant" for some definition of constant.  The
+** Walker.eCode value determines the type of "constant" we are looking
+** for.
 **
 ** These callback routines are used to implement the following:
 **
-**     sqlite3ExprIsConstant()                  pWalker->u.i==1
-**     sqlite3ExprIsConstantNotJoin()           pWalker->u.i==2
-**     sqlite3ExprIsConstantOrFunction()        pWalker->u.i==3 or 4
+**     sqlite3ExprIsConstant()                  pWalker->eCode==1
+**     sqlite3ExprIsConstantNotJoin()           pWalker->eCode==2
+**     sqlite3ExprRefOneTableOnly()             pWalker->eCode==3
+**     sqlite3ExprIsConstantOrFunction()        pWalker->eCode==4 or 5
+**
+** In all cases, the callbacks set Walker.eCode=0 and abort if the expression
+** is found to not be a constant.
 **
 ** The sqlite3ExprIsConstantOrFunction() is used for evaluating expressions
-** in a CREATE TABLE statement.  The Walker.u.i value is 4 when parsing
-** an existing schema and 3 when processing a new statement.  A bound
+** in a CREATE TABLE statement.  The Walker.eCode value is 5 when parsing
+** an existing schema and 4 when processing a new statement.  A bound
 ** parameter raises an error for new statements, but is silently converted
 ** to NULL for existing schemas.  This allows sqlite_master tables that 
 ** contain a bound parameter because they were generated by older versions
@@ -1232,23 +1285,25 @@ void sqlite3ExprListDelete(sqlite3 *db, ExprList *pList){
 */
 static int exprNodeIsConstant(Walker *pWalker, Expr *pExpr){
 
-  /* If pWalker->u.i is 2 then any term of the expression that comes from
-  ** the ON or USING clauses of a join disqualifies the expression
+  /* If pWalker->eCode is 2 then any term of the expression that comes from
+  ** the ON or USING clauses of a left join disqualifies the expression
   ** from being considered constant. */
-  if( pWalker->u.i==2 && ExprHasProperty(pExpr, EP_FromJoin) ){
-    pWalker->u.i = 0;
+  if( pWalker->eCode==2 && ExprHasProperty(pExpr, EP_FromJoin) ){
+    pWalker->eCode = 0;
     return WRC_Abort;
   }
 
   switch( pExpr->op ){
     /* Consider functions to be constant if all their arguments are constant
-    ** and either pWalker->u.i==3 or 4 or the function as the SQLITE_FUNC_CONST
-    ** flag. */
+    ** and either pWalker->eCode==4 or 5 or the function has the
+    ** SQLITE_FUNC_CONST flag. */
     case TK_FUNCTION:
-      if( pWalker->u.i>=3 || ExprHasProperty(pExpr,EP_Constant) ){
+      if( pWalker->eCode>=4 || ExprHasProperty(pExpr,EP_ConstFunc) ){
         return WRC_Continue;
+      }else{
+        pWalker->eCode = 0;
+        return WRC_Abort;
       }
-      /* Fall through */
     case TK_ID:
     case TK_COLUMN:
     case TK_AGG_FUNCTION:
@@ -1257,18 +1312,22 @@ static int exprNodeIsConstant(Walker *pWalker, Expr *pExpr){
       testcase( pExpr->op==TK_COLUMN );
       testcase( pExpr->op==TK_AGG_FUNCTION );
       testcase( pExpr->op==TK_AGG_COLUMN );
-      pWalker->u.i = 0;
-      return WRC_Abort;
+      if( pWalker->eCode==3 && pExpr->iTable==pWalker->u.iCur ){
+        return WRC_Continue;
+      }else{
+        pWalker->eCode = 0;
+        return WRC_Abort;
+      }
     case TK_VARIABLE:
-      if( pWalker->u.i==4 ){
+      if( pWalker->eCode==5 ){
         /* Silently convert bound parameters that appear inside of CREATE
         ** statements into a NULL when parsing the CREATE statement text out
         ** of the sqlite_master table */
         pExpr->op = TK_NULL;
-      }else if( pWalker->u.i==3 ){
+      }else if( pWalker->eCode==4 ){
         /* A bound parameter in a CREATE statement that originates from
         ** sqlite3_prepare() causes an error */
-        pWalker->u.i = 0;
+        pWalker->eCode = 0;
         return WRC_Abort;
       }
       /* Fall through */
@@ -1280,21 +1339,22 @@ static int exprNodeIsConstant(Walker *pWalker, Expr *pExpr){
 }
 static int selectNodeIsConstant(Walker *pWalker, Select *NotUsed){
   UNUSED_PARAMETER(NotUsed);
-  pWalker->u.i = 0;
+  pWalker->eCode = 0;
   return WRC_Abort;
 }
-static int exprIsConst(Expr *p, int initFlag){
+static int exprIsConst(Expr *p, int initFlag, int iCur){
   Walker w;
   memset(&w, 0, sizeof(w));
-  w.u.i = initFlag;
+  w.eCode = initFlag;
   w.xExprCallback = exprNodeIsConstant;
   w.xSelectCallback = selectNodeIsConstant;
+  w.u.iCur = iCur;
   sqlite3WalkExpr(&w, p);
-  return w.u.i;
+  return w.eCode;
 }
 
 /*
-** Walk an expression tree.  Return 1 if the expression is constant
+** Walk an expression tree.  Return non-zero if the expression is constant
 ** and 0 if it involves variables or function calls.
 **
 ** For the purposes of this function, a double-quoted string (ex: "abc")
@@ -1302,21 +1362,31 @@ static int exprIsConst(Expr *p, int initFlag){
 ** a constant.
 */
 int sqlite3ExprIsConstant(Expr *p){
-  return exprIsConst(p, 1);
+  return exprIsConst(p, 1, 0);
 }
 
 /*
-** Walk an expression tree.  Return 1 if the expression is constant
+** Walk an expression tree.  Return non-zero if the expression is constant
 ** that does no originate from the ON or USING clauses of a join.
 ** Return 0 if it involves variables or function calls or terms from
 ** an ON or USING clause.
 */
 int sqlite3ExprIsConstantNotJoin(Expr *p){
-  return exprIsConst(p, 2);
+  return exprIsConst(p, 2, 0);
 }
 
 /*
-** Walk an expression tree.  Return 1 if the expression is constant
+** Walk an expression tree.  Return non-zero if the expression constant
+** for any single row of the table with cursor iCur.  In other words, the
+** expression must not refer to any non-deterministic function nor any
+** table other than iCur.
+*/
+int sqlite3ExprIsTableConstant(Expr *p, int iCur){
+  return exprIsConst(p, 3, iCur);
+}
+
+/*
+** Walk an expression tree.  Return non-zero if the expression is constant
 ** or a function call with constant arguments.  Return and 0 if there
 ** are any variables.
 **
@@ -1326,7 +1396,7 @@ int sqlite3ExprIsConstantNotJoin(Expr *p){
 */
 int sqlite3ExprIsConstantOrFunction(Expr *p, u8 isInit){
   assert( isInit==0 || isInit==1 );
-  return exprIsConst(p, 3+isInit);
+  return exprIsConst(p, 4+isInit, 0);
 }
 
 /*
@@ -1393,7 +1463,8 @@ int sqlite3ExprCanBeNull(const Expr *p){
       return 0;
     case TK_COLUMN:
       assert( p->pTab!=0 );
-      return p->iColumn>=0 && p->pTab->aCol[p->iColumn].notNull==0;
+      return ExprHasProperty(p, EP_CanBeNull) ||
+             (p->iColumn>=0 && p->pTab->aCol[p->iColumn].notNull==0);
     default:
       return 1;
   }
@@ -1621,7 +1692,7 @@ int sqlite3FindInIndex(Parse *pParse, Expr *pX, u32 inFlags, int *prRhsHasNull){
   ** ephemeral table.
   */
   p = (ExprHasProperty(pX, EP_xIsSelect) ? pX->x.pSelect : 0);
-  if( ALWAYS(pParse->nErr==0) && isCandidateForInOpt(p) ){
+  if( pParse->nErr==0 && isCandidateForInOpt(p) ){
     sqlite3 *db = pParse->db;              /* Database connection */
     Table *pTab;                           /* Table <table>. */
     Expr *pExpr;                           /* Expression <column> */
@@ -1946,6 +2017,7 @@ int sqlite3CodeSubselect(
       pSel->pLimit = sqlite3PExpr(pParse, TK_INTEGER, 0, 0,
                                   &sqlite3IntTokens[1]);
       pSel->iLimit = 0;
+      pSel->selFlags &= ~SF_MultiValue;
       if( sqlite3Select(pParse, pSel, &dest) ){
         return 0;
       }
@@ -2234,7 +2306,8 @@ void sqlite3ExprCacheStore(Parse *pParse, int iTab, int iCol, int iReg){
   int idxLru;
   struct yColCache *p;
 
-  assert( iReg>0 );  /* Register numbers are always positive */
+  /* Unless an error has occurred, register numbers are always positive. */
+  assert( iReg>0 || pParse->nErr || pParse->db->mallocFailed );
   assert( iCol>=-1 && iCol<32768 );  /* Finite column numbers */
 
   /* The SQLITE_ColumnCache flag disables the column cache.  This is used
@@ -2982,7 +3055,10 @@ int sqlite3ExprCodeTarget(Parse *pParse, Expr *pExpr, int target){
 
 #ifndef SQLITE_OMIT_FLOATING_POINT
       /* If the column has REAL affinity, it may currently be stored as an
-      ** integer. Use OP_RealAffinity to make sure it is really real.  */
+      ** integer. Use OP_RealAffinity to make sure it is really real.
+      **
+      ** EVIDENCE-OF: R-60985-57662 SQLite will convert the value back to
+      ** floating point when extracting it from the record.  */
       if( pExpr->iColumn>=0 
        && pTab->aCol[pExpr->iColumn].affinity==SQLITE_AFF_REAL
       ){
@@ -3307,7 +3383,7 @@ void sqlite3TreeViewExpr(TreeView *pView, const Expr *pExpr, u8 moreToFollow){
       break;
     }
     case TK_ID: {
-      sqlite3TreeViewLine(pView,"ID %Q", pExpr->u.zToken);
+      sqlite3TreeViewLine(pView,"ID \"%w\"", pExpr->u.zToken);
       break;
     }
 #ifndef SQLITE_OMIT_CAST
@@ -3942,7 +4018,7 @@ int sqlite3ExprCompare(Expr *pA, Expr *pB, int iTab){
     if( sqlite3ExprCompare(pA->pLeft, pB->pLeft, iTab) ) return 2;
     if( sqlite3ExprCompare(pA->pRight, pB->pRight, iTab) ) return 2;
     if( sqlite3ExprListCompare(pA->x.pList, pB->x.pList, iTab) ) return 2;
-    if( ALWAYS((combinedFlags & EP_Reduced)==0) ){
+    if( ALWAYS((combinedFlags & EP_Reduced)==0) && pA->op!=TK_STRING ){
       if( pA->iColumn!=pB->iColumn ) return 2;
       if( pA->iTable!=pB->iTable 
        && (pA->iTable!=iTab || NEVER(pB->iTable>=0)) ) return 2;
@@ -4044,10 +4120,11 @@ static int exprSrcCount(Walker *pWalker, Expr *pExpr){
     int i;
     struct SrcCount *p = pWalker->u.pSrcCount;
     SrcList *pSrc = p->pSrc;
-    for(i=0; i<pSrc->nSrc; i++){
+    int nSrc = pSrc ? pSrc->nSrc : 0;
+    for(i=0; i<nSrc; i++){
       if( pExpr->iTable==pSrc->a[i].iCursor ) break;
     }
-    if( i<pSrc->nSrc ){
+    if( i<nSrc ){
       p->nThis++;
     }else{
       p->nOther++;

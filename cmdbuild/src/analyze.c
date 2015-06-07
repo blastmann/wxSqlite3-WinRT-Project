@@ -448,7 +448,7 @@ static void statInit(
     p->mxSample = mxSample;
     p->nPSample = (tRowcnt)(sqlite3_value_int64(argv[2])/(mxSample/3+1) + 1);
     p->current.anLt = &p->current.anEq[nColUp];
-    p->iPrn = nCol*0x689e962d ^ sqlite3_value_int(argv[2])*0xd0944565;
+    p->iPrn = 0x689e962d*(u32)nCol ^ 0xd0944565*(u32)sqlite3_value_int(argv[2]);
   
     /* Set up the Stat4Accum.a[] and aBest[] arrays */
     p->a = (struct Stat4Sample*)&p->current.anLt[nColUp];
@@ -1457,23 +1457,28 @@ static void decodeIntArray(
     if( *z==' ' ) z++;
   }
 #ifndef SQLITE_ENABLE_STAT3_OR_STAT4
-  assert( pIndex!=0 );
+  assert( pIndex!=0 ); {
 #else
-  if( pIndex )
+  if( pIndex ){
 #endif
-  while( z[0] ){
-    if( sqlite3_strglob("unordered*", z)==0 ){
-      pIndex->bUnordered = 1;
-    }else if( sqlite3_strglob("sz=[0-9]*", z)==0 ){
-      pIndex->szIdxRow = sqlite3LogEst(sqlite3Atoi(z+3));
-    }
+    pIndex->bUnordered = 0;
+    pIndex->noSkipScan = 0;
+    while( z[0] ){
+      if( sqlite3_strglob("unordered*", z)==0 ){
+        pIndex->bUnordered = 1;
+      }else if( sqlite3_strglob("sz=[0-9]*", z)==0 ){
+        pIndex->szIdxRow = sqlite3LogEst(sqlite3Atoi(z+3));
+      }else if( sqlite3_strglob("noskipscan*", z)==0 ){
+        pIndex->noSkipScan = 1;
+      }
 #ifdef SQLITE_ENABLE_COSTMULT
-    else if( sqlite3_strglob("costmult=[0-9]*",z)==0 ){
-      pIndex->pTable->costMult = sqlite3LogEst(sqlite3Atoi(z+9));
-    }
+      else if( sqlite3_strglob("costmult=[0-9]*",z)==0 ){
+        pIndex->pTable->costMult = sqlite3LogEst(sqlite3Atoi(z+9));
+      }
 #endif
-    while( z[0]!=0 && z[0]!=' ' ) z++;
-    while( z[0]==' ' ) z++;
+      while( z[0]!=0 && z[0]!=' ' ) z++;
+      while( z[0]==' ' ) z++;
+    }
   }
 }
 
@@ -1514,14 +1519,17 @@ static int analysisLoader(void *pData, int argc, char **argv, char **NotUsed){
   z = argv[2];
 
   if( pIndex ){
+    tRowcnt *aiRowEst = 0;
     int nCol = pIndex->nKeyCol+1;
 #ifdef SQLITE_ENABLE_STAT3_OR_STAT4
-    tRowcnt * const aiRowEst = pIndex->aiRowEst = (tRowcnt*)sqlite3MallocZero(
-        sizeof(tRowcnt) * nCol
-    );
-    if( aiRowEst==0 ) pInfo->db->mallocFailed = 1;
-#else
-    tRowcnt * const aiRowEst = 0;
+    /* Index.aiRowEst may already be set here if there are duplicate 
+    ** sqlite_stat1 entries for this index. In that case just clobber
+    ** the old data with the new instead of allocating a new array.  */
+    if( pIndex->aiRowEst==0 ){
+      pIndex->aiRowEst = (tRowcnt*)sqlite3MallocZero(sizeof(tRowcnt) * nCol);
+      if( pIndex->aiRowEst==0 ) pInfo->db->mallocFailed = 1;
+    }
+    aiRowEst = pIndex->aiRowEst;
 #endif
     pIndex->bUnordered = 0;
     decodeIntArray((char*)z, nCol, aiRowEst, pIndex->aiRowLogEst, pIndex);
@@ -1591,7 +1599,7 @@ static void initAvgEq(Index *pIdx){
       i64 nSum100 = 0;          /* Number of terms contributing to sumEq */
       i64 nDist100;             /* Number of distinct values in index */
 
-      if( pIdx->aiRowEst==0 || pIdx->aiRowEst[iCol+1]==0 ){
+      if( !pIdx->aiRowEst || iCol>=pIdx->nKeyCol || pIdx->aiRowEst[iCol+1]==0 ){
         nRow = pFinal->anLt[iCol];
         nDist100 = (i64)100 * pFinal->anDLt[iCol];
         nSample--;
@@ -1599,6 +1607,7 @@ static void initAvgEq(Index *pIdx){
         nRow = pIdx->aiRowEst[0];
         nDist100 = ((i64)100 * pIdx->aiRowEst[0]) / pIdx->aiRowEst[iCol+1];
       }
+      pIdx->nRowEst0 = nRow;
 
       /* Set nSum to the number of distinct (iCol+1) field prefixes that
       ** occur in the stat4 table for this index. Set sumEq to the sum of 
@@ -1860,7 +1869,7 @@ int sqlite3AnalysisLoad(sqlite3 *db, int iDb){
 
   /* Load the statistics from the sqlite_stat4 table. */
 #ifdef SQLITE_ENABLE_STAT3_OR_STAT4
-  if( rc==SQLITE_OK ){
+  if( rc==SQLITE_OK && OptimizationEnabled(db, SQLITE_Stat34) ){
     int lookasideEnabled = db->lookaside.bEnabled;
     db->lookaside.bEnabled = 0;
     rc = loadStat4(db, sInfo.zDatabase);
