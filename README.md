@@ -72,7 +72,6 @@ tclsh85 mkvsix.tcl ..\build .. WinRT81 "x86,x64,ARM" 2013
 
 # for WP81
 tclsh85 mkvsix.tcl ..\build .. WP81 "x86,ARM" 2013
-```
 
 # for UAP
 tclsh85 mkvsix.tcl ..\build .. UAP "x86,x64,ARM" 2015
