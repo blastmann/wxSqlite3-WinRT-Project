@@ -42,7 +42,7 @@ void sqlite3OpenTable(
   }else{
     Index *pPk = sqlite3PrimaryKeyIndex(pTab);
     assert( pPk!=0 );
-    assert( pPk->tnum=pTab->tnum );
+    assert( pPk->tnum==pTab->tnum );
     sqlite3VdbeAddOp3(v, opcode, iCur, pPk->tnum, iDb);
     sqlite3VdbeSetP4KeyInfo(pParse, pPk);
     VdbeComment((v, "%s", pTab->zName));
@@ -56,7 +56,7 @@ void sqlite3OpenTable(
 **
 **  Character      Column affinity
 **  ------------------------------
-**  'A'            NONE
+**  'A'            BLOB
 **  'B'            TEXT
 **  'C'            NUMERIC
 **  'D'            INTEGER
@@ -99,9 +99,9 @@ const char *sqlite3IndexAffinityStr(Vdbe *v, Index *pIdx){
 
 /*
 ** Compute the affinity string for table pTab, if it has not already been
-** computed.  As an optimization, omit trailing SQLITE_AFF_NONE affinities.
+** computed.  As an optimization, omit trailing SQLITE_AFF_BLOB affinities.
 **
-** If the affinity exists (if it is no entirely SQLITE_AFF_NONE values) and
+** If the affinity exists (if it is no entirely SQLITE_AFF_BLOB values) and
 ** if iReg>0 then code an OP_Affinity opcode that will set the affinities
 ** for register iReg and following.  Or if affinities exists and iReg==0,
 ** then just set the P4 operand of the previous opcode (which should  be
@@ -111,7 +111,7 @@ const char *sqlite3IndexAffinityStr(Vdbe *v, Index *pIdx){
 **
 **  Character      Column affinity
 **  ------------------------------
-**  'A'            NONE
+**  'A'            BLOB
 **  'B'            TEXT
 **  'C'            NUMERIC
 **  'D'            INTEGER
@@ -133,7 +133,7 @@ void sqlite3TableAffinity(Vdbe *v, Table *pTab, int iReg){
     }
     do{
       zColAff[i--] = 0;
-    }while( i>=0 && zColAff[i]==SQLITE_AFF_NONE );
+    }while( i>=0 && zColAff[i]==SQLITE_AFF_BLOB );
     pTab->zColAff = zColAff;
   }
   i = sqlite3Strlen30(zColAff);
@@ -1381,8 +1381,8 @@ void sqlite3GenerateConstraintChecks(
     if( pIdx->pPartIdxWhere ){
       sqlite3VdbeAddOp2(v, OP_Null, 0, aRegIdx[ix]);
       pParse->ckBase = regNewData+1;
-      sqlite3ExprIfFalse(pParse, pIdx->pPartIdxWhere, addrUniqueOk,
-                         SQLITE_JUMPIFNULL);
+      sqlite3ExprIfFalseDup(pParse, pIdx->pPartIdxWhere, addrUniqueOk,
+                            SQLITE_JUMPIFNULL);
       pParse->ckBase = 0;
     }
 
@@ -1996,7 +1996,7 @@ static int xferOptimization(
     sqlite3TableLock(pParse, iDbSrc, pSrc->tnum, 0, pSrc->zName);
   }
   for(pDestIdx=pDest->pIndex; pDestIdx; pDestIdx=pDestIdx->pNext){
-    u8 useSeekResult = 0;
+    u8 idxInsFlags = 0;
     for(pSrcIdx=pSrc->pIndex; ALWAYS(pSrcIdx); pSrcIdx=pSrcIdx->pNext){
       if( xferCompatibleIndex(pDestIdx, pSrcIdx) ) break;
     }
@@ -2031,12 +2031,15 @@ static int xferOptimization(
         if( sqlite3_stricmp("BINARY", zColl) ) break;
       }
       if( i==pSrcIdx->nColumn ){
-        useSeekResult = OPFLAG_USESEEKRESULT;
+        idxInsFlags = OPFLAG_USESEEKRESULT;
         sqlite3VdbeAddOp3(v, OP_Last, iDest, 0, -1);
       }
     }
+    if( !HasRowid(pSrc) && pDestIdx->idxType==2 ){
+      idxInsFlags |= OPFLAG_NCHANGE;
+    }
     sqlite3VdbeAddOp3(v, OP_IdxInsert, iDest, regData, 1);
-    sqlite3VdbeChangeP5(v, useSeekResult);
+    sqlite3VdbeChangeP5(v, idxInsFlags);
     sqlite3VdbeAddOp2(v, OP_Next, iSrc, addr1+1); VdbeCoverage(v);
     sqlite3VdbeJumpHere(v, addr1);
     sqlite3VdbeAddOp2(v, OP_Close, iSrc, 0);

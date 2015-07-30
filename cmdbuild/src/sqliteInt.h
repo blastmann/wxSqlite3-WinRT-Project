@@ -60,6 +60,13 @@
 # define _LARGEFILE_SOURCE 1
 #endif
 
+/* What version of GCC is being used.  0 means GCC is not being used */
+#ifdef __GNUC__
+# define GCC_VERSION (__GNUC__*1000000+__GNUC_MINOR__*1000+__GNUC_PATCHLEVEL__)
+#else
+# define GCC_VERSION 0
+#endif
+
 /* Needed for various definitions... */
 #if defined(__GNUC__) && !defined(_GNU_SOURCE)
 # define _GNU_SOURCE
@@ -176,6 +183,20 @@
 #  define SQLITE_NOINLINE  __declspec(noinline)
 #else
 #  define SQLITE_NOINLINE
+#endif
+
+/*
+** Make sure that the compiler intrinsics we desire are enabled when
+** compiling with an appropriate version of MSVC.
+*/
+#if defined(_MSC_VER) && _MSC_VER>=1300
+#  if !defined(_WIN32_WCE)
+#    include <intrin.h>
+#    pragma intrinsic(_byteswap_ushort)
+#    pragma intrinsic(_byteswap_ulong)
+#  else
+#    include <cmnintrin.h>
+#  endif
 #endif
 
 /*
@@ -492,6 +513,16 @@
 # define SQLITE_MAX_WORKER_THREADS SQLITE_DEFAULT_WORKER_THREADS
 #endif
 
+/*
+** The default initial allocation for the pagecache when using separate
+** pagecaches for each database connection.  A positive number is the
+** number of pages.  A negative number N translations means that a buffer
+** of -1024*N bytes is allocated and used for as many pages as it will hold.
+*/
+#ifndef SQLITE_DEFAULT_PCACHE_INITSZ
+# define SQLITE_DEFAULT_PCACHE_INITSZ 100
+#endif
+
 
 /*
 ** GCC does not define the offsetof() macro so we'll have to do it
@@ -727,7 +758,9 @@ extern const int sqlite3one;
 # if defined(__linux__) \
   || defined(_WIN32) \
   || (defined(__APPLE__) && defined(__MACH__)) \
-  || defined(__sun)
+  || defined(__sun) \
+  || defined(__FreeBSD__) \
+  || defined(__DragonFly__)
 #   define SQLITE_MAX_MMAP_SIZE 0x7fff0000  /* 2147418112 */
 # else
 #   define SQLITE_MAX_MMAP_SIZE 0
@@ -1253,6 +1286,7 @@ struct sqlite3 {
 #define SQLITE_QueryOnly      0x02000000  /* Disable database changes */
 #define SQLITE_VdbeEQP        0x04000000  /* Debug EXPLAIN QUERY PLAN */
 #define SQLITE_Vacuum         0x08000000  /* Currently in a VACUUM */
+#define SQLITE_CellSizeCk     0x10000000  /* Check btree cell sizes on load */
 
 
 /*
@@ -1500,9 +1534,9 @@ struct CollSeq {
 ** used as the P4 operand, they will be more readable.
 **
 ** Note also that the numeric types are grouped together so that testing
-** for a numeric type is a single comparison.  And the NONE type is first.
+** for a numeric type is a single comparison.  And the BLOB type is first.
 */
-#define SQLITE_AFF_NONE     'A'
+#define SQLITE_AFF_BLOB     'A'
 #define SQLITE_AFF_TEXT     'B'
 #define SQLITE_AFF_NUMERIC  'C'
 #define SQLITE_AFF_INTEGER  'D'
@@ -1634,8 +1668,9 @@ struct Table {
 #define TF_HasPrimaryKey   0x04    /* Table has a primary key */
 #define TF_Autoincrement   0x08    /* Integer primary key is autoincrement */
 #define TF_Virtual         0x10    /* Is a virtual table */
-#define TF_WithoutRowid    0x20    /* No rowid used. PRIMARY KEY is the key */
-#define TF_OOOHidden       0x40    /* Out-of-Order hidden columns */
+#define TF_WithoutRowid    0x20    /* No rowid.  PRIMARY KEY is the key */
+#define TF_NoVisibleRowid  0x40    /* No user-visible "rowid" column */
+#define TF_OOOHidden       0x80    /* Out-of-Order hidden columns */
 
 
 /*
@@ -1653,6 +1688,7 @@ struct Table {
 
 /* Does the table have a rowid */
 #define HasRowid(X)     (((X)->tabFlags & TF_WithoutRowid)==0)
+#define VisibleRowid(X) (((X)->tabFlags & TF_NoVisibleRowid)==0)
 
 /*
 ** Each foreign key constraint is an instance of the following structure.
@@ -1811,6 +1847,14 @@ struct UnpackedRecord {
 ** and the value of Index.onError indicate the which conflict resolution 
 ** algorithm to employ whenever an attempt is made to insert a non-unique
 ** element.
+**
+** While parsing a CREATE TABLE or CREATE INDEX statement in order to
+** generate VDBE code (as opposed to parsing one read from an sqlite_master
+** table as part of parsing an existing database schema), transient instances
+** of this structure may be created. In this case the Index.tnum variable is
+** used to store the address of a VDBE instruction, not a database page
+** number (it cannot - the database page is not allocated until the VDBE
+** program is executed). See convertToWithoutRowidTable() for details.
 */
 struct Index {
   char *zName;             /* Name of this index */
@@ -2249,7 +2293,7 @@ struct SrcList {
     Expr *pOn;        /* The ON clause of a join */
     IdList *pUsing;   /* The USING clause of a join */
     Bitmask colUsed;  /* Bit N (1<<N) set if column N of pTab is used */
-    char *zIndex;     /* Identifier from "INDEXED BY <zIndex>" clause */
+    char *zIndexedBy; /* Identifier from "INDEXED BY <zIndex>" clause */
     Index *pIndex;    /* Index structure corresponding to zIndex, if any */
   } a[1];             /* One entry for each identifier on the list */
 };
@@ -2385,19 +2429,20 @@ struct Select {
 ** "Select Flag".
 */
 #define SF_Distinct        0x0001  /* Output should be DISTINCT */
-#define SF_Resolved        0x0002  /* Identifiers have been resolved */
-#define SF_Aggregate       0x0004  /* Contains aggregate functions */
-#define SF_UsesEphemeral   0x0008  /* Uses the OpenEphemeral opcode */
-#define SF_Expanded        0x0010  /* sqlite3SelectExpand() called on this */
-#define SF_HasTypeInfo     0x0020  /* FROM subqueries have Table metadata */
-#define SF_Compound        0x0040  /* Part of a compound query */
-#define SF_Values          0x0080  /* Synthesized from VALUES clause */
-#define SF_MultiValue      0x0100  /* Single VALUES term with multiple rows */
-#define SF_NestedFrom      0x0200  /* Part of a parenthesized FROM clause */
-#define SF_MaybeConvert    0x0400  /* Need convertCompoundSelectToSubquery() */
-#define SF_Recursive       0x0800  /* The recursive part of a recursive CTE */
+#define SF_All             0x0002  /* Includes the ALL keyword */
+#define SF_Resolved        0x0004  /* Identifiers have been resolved */
+#define SF_Aggregate       0x0008  /* Contains aggregate functions */
+#define SF_UsesEphemeral   0x0010  /* Uses the OpenEphemeral opcode */
+#define SF_Expanded        0x0020  /* sqlite3SelectExpand() called on this */
+#define SF_HasTypeInfo     0x0040  /* FROM subqueries have Table metadata */
+#define SF_Compound        0x0080  /* Part of a compound query */
+#define SF_Values          0x0100  /* Synthesized from VALUES clause */
+#define SF_MultiValue      0x0200  /* Single VALUES term with multiple rows */
+#define SF_NestedFrom      0x0400  /* Part of a parenthesized FROM clause */
+#define SF_MaybeConvert    0x0800  /* Need convertCompoundSelectToSubquery() */
 #define SF_MinMaxAgg       0x1000  /* Aggregate containing min() or max() */
-#define SF_Converted       0x2000  /* By convertCompoundSelectToSubquery() */
+#define SF_Recursive       0x2000  /* The recursive part of a recursive CTE */
+#define SF_Converted       0x4000  /* By convertCompoundSelectToSubquery() */
 
 
 /*
@@ -2639,7 +2684,6 @@ struct Parse {
   Parse *pToplevel;    /* Parse structure for main program (or NULL) */
   Table *pTriggerTab;  /* Table triggers are being coded for */
   int addrCrTab;       /* Address of OP_CreateTable opcode on CREATE TABLE */
-  int addrSkipPK;      /* Address of instruction to skip PRIMARY KEY index */
   u32 nQueryLoop;      /* Est number of iterations of a query (10*log2(N)) */
   u32 oldmask;         /* Mask of old.* columns referenced */
   u32 newmask;         /* Mask of new.* columns referenced */
@@ -3055,7 +3099,9 @@ int sqlite3CantopenError(int);
 # define sqlite3Isxdigit(x)  isxdigit((unsigned char)(x))
 # define sqlite3Tolower(x)   tolower((unsigned char)(x))
 #endif
+#ifndef SQLITE_OMIT_COMPILEOPTION_DIAGS
 int sqlite3IsIdChar(u8);
+#endif
 
 /*
 ** Internal function prototypes
@@ -3083,7 +3129,9 @@ void sqlite3ScratchFree(void*);
 void *sqlite3PageMalloc(int);
 void sqlite3PageFree(void*);
 void sqlite3MemSetDefault(void);
+#ifndef SQLITE_OMIT_BUILTIN_TEST
 void sqlite3BenignMallocHooks(void (*)(void), void (*)(void));
+#endif
 int sqlite3HeapNearlyFull(void);
 
 /*
@@ -3151,7 +3199,6 @@ void sqlite3VXPrintf(StrAccum*, u32, const char*, va_list);
 void sqlite3XPrintf(StrAccum*, u32, const char*, ...);
 char *sqlite3MPrintf(sqlite3*,const char*, ...);
 char *sqlite3VMPrintf(sqlite3*,const char*, va_list);
-char *sqlite3MAppendf(sqlite3*,char*,const char*,...);
 #if defined(SQLITE_DEBUG) || defined(SQLITE_HAVE_OS_TRACE)
   void sqlite3DebugPrintf(const char*, ...);
 #endif
@@ -3160,17 +3207,13 @@ char *sqlite3MAppendf(sqlite3*,char*,const char*,...);
 #endif
 
 #if defined(SQLITE_DEBUG)
-  TreeView *sqlite3TreeViewPush(TreeView*,u8);
-  void sqlite3TreeViewPop(TreeView*);
-  void sqlite3TreeViewLine(TreeView*, const char*, ...);
-  void sqlite3TreeViewItem(TreeView*, const char*, u8);
   void sqlite3TreeViewExpr(TreeView*, const Expr*, u8);
   void sqlite3TreeViewExprList(TreeView*, const ExprList*, u8, const char*);
   void sqlite3TreeViewSelect(TreeView*, const Select*, u8);
 #endif
 
 
-void sqlite3SetString(char **, sqlite3*, const char*, ...);
+void sqlite3SetString(char **, sqlite3*, const char*);
 void sqlite3ErrorMsg(Parse*, const char*, ...);
 int sqlite3Dequote(char*);
 int sqlite3KeywordCode(const unsigned char*, int);
@@ -3228,11 +3271,14 @@ int sqlite3CodeOnce(Parse *);
 
 Bitvec *sqlite3BitvecCreate(u32);
 int sqlite3BitvecTest(Bitvec*, u32);
+int sqlite3BitvecTestNotNull(Bitvec*, u32);
 int sqlite3BitvecSet(Bitvec*, u32);
 void sqlite3BitvecClear(Bitvec*, u32, void*);
 void sqlite3BitvecDestroy(Bitvec*);
 u32 sqlite3BitvecSize(Bitvec*);
+#ifndef SQLITE_OMIT_BUILTIN_TEST
 int sqlite3BitvecBuiltinTest(int,int*);
+#endif
 
 RowSet *sqlite3RowSetInit(sqlite3*, void*, unsigned int);
 void sqlite3RowSetClear(RowSet*);
@@ -3320,6 +3366,7 @@ int sqlite3ExprCodeExprList(Parse*, ExprList*, int, u8);
 #define SQLITE_ECEL_FACTOR   0x02  /* Factor out constant terms */
 void sqlite3ExprIfTrue(Parse*, Expr*, int, int);
 void sqlite3ExprIfFalse(Parse*, Expr*, int, int);
+void sqlite3ExprIfFalseDup(Parse*, Expr*, int, int);
 Table *sqlite3FindTable(sqlite3*,const char*, const char*);
 Table *sqlite3LocateTable(Parse*,int isView,const char*, const char*);
 Table *sqlite3LocateTableItem(Parse*,int isView,struct SrcList_item *);
@@ -3336,8 +3383,10 @@ void sqlite3ExprAnalyzeAggregates(NameContext*, Expr*);
 void sqlite3ExprAnalyzeAggList(NameContext*,ExprList*);
 int sqlite3FunctionUsesThisSrc(Expr*, SrcList*);
 Vdbe *sqlite3GetVdbe(Parse*);
+#ifndef SQLITE_OMIT_BUILTIN_TEST
 void sqlite3PrngSaveState(void);
 void sqlite3PrngRestoreState(void);
+#endif
 void sqlite3RollbackAll(sqlite3*,int);
 void sqlite3CodeVerifySchema(Parse*, int);
 void sqlite3CodeVerifyNamedSchema(Parse*, const char *zDb);
@@ -3555,6 +3604,7 @@ void sqlite3NestedParse(Parse*, const char*, ...);
 void sqlite3ExpirePreparedStatements(sqlite3*);
 int sqlite3CodeSubselect(Parse *, Expr *, int, int);
 void sqlite3SelectPrep(Parse*, Select*, NameContext*);
+void sqlite3SelectWrongNumTermsError(Parse *pParse, Select *p);
 int sqlite3MatchSpanName(const char*, const char*, const char*, const char*);
 int sqlite3ResolveExprNames(NameContext*, Expr*);
 void sqlite3ResolveSelectNames(Parse*, Select*, NameContext*);
@@ -3865,6 +3915,10 @@ SQLITE_API SQLITE_EXTERN void (SQLITE_CDECL *sqlite3IoTrace)(const char*,...);
 #if SQLITE_MAX_WORKER_THREADS>0
 int sqlite3ThreadCreate(SQLiteThread**,void*(*)(void*),void*);
 int sqlite3ThreadJoin(SQLiteThread*, void**);
+#endif
+
+#if defined(SQLITE_ENABLE_DBSTAT_VTAB) || defined(SQLITE_TEST)
+int sqlite3DbstatRegister(sqlite3*);
 #endif
 
 #endif /* _SQLITEINT_H_ */

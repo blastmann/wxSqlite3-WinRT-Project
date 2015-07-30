@@ -482,9 +482,9 @@ FOR %%P IN (%PLATFORMS%) DO (
             REM       different directory naming conventions.
             REM
             IF DEFINED USE_WINV100_NSDKLIBPATH (
-              CALL :fn_AppendVariable NSDKLIBPATH \..\10\lib\10.0.10069.0\um\x86
+              CALL :fn_AppendVariable NSDKLIBPATH \..\10\lib\10.0.10030.0\um\x86
               CALL :fn_CopyVariable UniversalCRTSdkDir PSDKLIBPATH
-              CALL :fn_AppendVariable PSDKLIBPATH Lib\10.0.10069.0\um\%%D
+              CALL :fn_AppendVariable PSDKLIBPATH Lib\10.0.10030.0\um\%%D
             ) ELSE IF DEFINED USE_WINV63_NSDKLIBPATH (
               CALL :fn_AppendVariable NSDKLIBPATH \lib\winv6.3\um\x86
             ) ELSE IF "%VisualStudioVersion%" == "12.0" (
@@ -507,7 +507,7 @@ FOR %%P IN (%PLATFORMS%) DO (
         IF DEFINED SET_NUCRTLIBPATH (
           IF DEFINED UniversalCRTSdkDir (
             CALL :fn_CopyVariable UniversalCRTSdkDir NUCRTLIBPATH
-            CALL :fn_AppendVariable NUCRTLIBPATH \lib\10.0.10069.0\ucrt\x86
+            CALL :fn_AppendVariable NUCRTLIBPATH \lib\winv10.0\ucrt\x86
           )
         )
 
