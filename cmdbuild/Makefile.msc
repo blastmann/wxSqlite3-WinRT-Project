@@ -108,7 +108,7 @@ XCOMPILE = 0
 # Set this non-0 to use the native libraries paths for cross-compiling
 # the command line tools needed during the compilation process.
 #
-!IFNDEF USE_NATIVE_LIBPATHS
+!IFNDEF USE_NATIVE_LIBPATH
 USE_NATIVE_LIBPATHS = 0
 !ENDIF
 
@@ -701,6 +701,12 @@ BCC = $(BCC) -O1
 !IF $(DEBUG)>1 || $(SYMBOLS)!=0
 TCC = $(TCC) -Zi
 BCC = $(BCC) -Zi
+!ENDIF
+
+## If USE_SECURE_SQLITE is enabled, enlable -Gy for ARM.
+!IF "$(PLATFORM)"=="ARM" && $(USE_SECURE_SQLITE) != 0
+TCC = $(TCC) -Gy
+BCC = $(BCC) -Gy
 !ENDIF
 
 # If ICU support is enabled, add the compiler options for it.

@@ -384,25 +384,25 @@ if {![string equal $vsVersion 2012] && ![string equal $vsVersion 2013] && \
       [list 2012 2013 2015]]
 }
 
-set shortNames(WinRT,2012) SQLite.WinRT
-set shortNames(WinRT,2013) SQLite.WinRT.2013
-set shortNames(WinRT81,2013) SQLite.WinRT81
-set shortNames(WP80,2012) SQLite.WP80
-set shortNames(WP80,2013) SQLite.WP80.2013
-set shortNames(WP81,2013) SQLite.WP81
-set shortNames(Win32,2012) SQLite.Win32
-set shortNames(Win32,2013) SQLite.Win32.2013
-set shortNames(UAP,2015) SQLite.UAP.2015
+set shortNames(WinRT,2012) wxSQLite.WinRT
+set shortNames(WinRT,2013) wxSQLite.WinRT.2013
+set shortNames(WinRT81,2013) wxSQLite.WinRT81
+set shortNames(WP80,2012) wxSQLite.WP80
+set shortNames(WP80,2013) wxSQLite.WP80.2013
+set shortNames(WP81,2013) wxSQLite.WP81
+set shortNames(Win32,2012) wxSQLite.Win32
+set shortNames(Win32,2013) wxSQLite.Win32.2013
+set shortNames(UAP,2015) wxSQLite.UAP.2015
 
-set displayNames(WinRT,2012) "SQLite for Windows Runtime"
-set displayNames(WinRT,2013) "SQLite for Windows Runtime"
-set displayNames(WinRT81,2013) "SQLite for Windows Runtime (Windows 8.1)"
-set displayNames(WP80,2012) "SQLite for Windows Phone"
-set displayNames(WP80,2013) "SQLite for Windows Phone"
-set displayNames(WP81,2013) "SQLite for Windows Phone 8.1"
-set displayNames(Win32,2012) "SQLite for Windows"
-set displayNames(Win32,2013) "SQLite for Windows"
-set displayNames(UAP,2015) "SQLite for Universal App Platform"
+set displayNames(WinRT,2012) "wxSQLite for Windows Runtime"
+set displayNames(WinRT,2013) "wxSQLite for Windows Runtime"
+set displayNames(WinRT81,2013) "wxSQLite for Windows Runtime (Windows 8.1)"
+set displayNames(WP80,2012) "wxSQLite for Windows Phone"
+set displayNames(WP80,2013) "wxSQLite for Windows Phone"
+set displayNames(WP81,2013) "wxSQLite for Windows Phone 8.1"
+set displayNames(Win32,2012) "wxSQLite for Windows"
+set displayNames(Win32,2013) "wxSQLite for Windows"
+set displayNames(UAP,2015) "wxSQLite for Universal App Platform"
 
 if {[string equal $packageFlavor WinRT]} then {
   set shortName $shortNames($packageFlavor,$vsVersion)
