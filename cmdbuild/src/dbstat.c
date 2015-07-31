@@ -18,9 +18,9 @@
 ** for an example implementation.
 */
 
+#include "sqliteInt.h"   /* Requires access to internal data structures */
 #if (defined(SQLITE_ENABLE_DBSTAT_VTAB) || defined(SQLITE_TEST)) \
     && !defined(SQLITE_OMIT_VIRTUALTABLE)
-#include "sqliteInt.h"   /* Requires access to internal data structures */
 
 /*
 ** Page paths:
@@ -621,7 +621,7 @@ static int statRowid(sqlite3_vtab_cursor *pCursor, sqlite_int64 *pRowid){
 /*
 ** Invoke this routine to register the "dbstat" virtual table module
 */
-int sqlite3_dbstat_register(sqlite3 *db){
+int sqlite3DbstatRegister(sqlite3 *db){
   static sqlite3_module dbstat_module = {
     0,                            /* iVersion */
     statConnect,                  /* xCreate */
@@ -646,4 +646,6 @@ int sqlite3_dbstat_register(sqlite3 *db){
   };
   return sqlite3_create_module(db, "dbstat", &dbstat_module, 0);
 }
+#elif defined(SQLITE_ENABLE_DBSTAT_VTAB)
+int sqlite3DbstatRegister(sqlite3 *db){ return SQLITE_OK; }
 #endif /* SQLITE_ENABLE_DBSTAT_VTAB */

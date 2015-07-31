@@ -506,7 +506,7 @@ if {[file exists $userFile] && \
 
 ###############################################################################
 
-set templateFile [file join $path win SQLite.vsix]
+set templateFile [file join $path win sqlite.vsix]
 
 if {![file exists $templateFile] || \
     ![file isfile $templateFile]} then {

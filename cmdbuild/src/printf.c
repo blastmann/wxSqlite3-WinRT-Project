@@ -1,16 +1,13 @@
 /*
 ** The "printf" code that follows dates from the 1980's.  It is in
-** the public domain.  The original comments are included here for
-** completeness.  They are very out-of-date but might be useful as
-** an historical reference.  Most of the "enhancements" have been backed
-** out so that the functionality is now the same as standard printf().
+** the public domain. 
 **
 **************************************************************************
 **
 ** This file contains code for a set of "printf"-like routines.  These
 ** routines format strings much like the printf() from the standard C
 ** library, though the implementation here has enhancements to support
-** SQLlite.
+** SQLite.
 */
 #include "sqliteInt.h"
 
@@ -932,24 +929,6 @@ char *sqlite3MPrintf(sqlite3 *db, const char *zFormat, ...){
 }
 
 /*
-** Like sqlite3MPrintf(), but call sqlite3DbFree() on zStr after formatting
-** the string and before returning.  This routine is intended to be used
-** to modify an existing string.  For example:
-**
-**       x = sqlite3MPrintf(db, x, "prefix %s suffix", x);
-**
-*/
-char *sqlite3MAppendf(sqlite3 *db, char *zStr, const char *zFormat, ...){
-  va_list ap;
-  char *z;
-  va_start(ap, zFormat);
-  z = sqlite3VMPrintf(db, zFormat, ap);
-  va_end(ap);
-  sqlite3DbFree(db, zStr);
-  return z;
-}
-
-/*
 ** Print into memory obtained from sqlite3_malloc().  Omit the internal
 ** %-conversion extensions.
 */
@@ -1033,6 +1012,11 @@ char *sqlite3_snprintf(int n, char *zBuf, const char *zFormat, ...){
 ** sqlite3_log() must render into a static buffer.  It cannot dynamically
 ** allocate memory because it might be called while the memory allocator
 ** mutex is held.
+**
+** sqlite3VXPrintf() might ask for *temporary* memory allocations for
+** certain format characters (%q) or for very large precisions or widths.
+** Care must be taken that any sqlite3_log() calls that occur while the
+** memory mutex is held do not use these mechanisms.
 */
 static void renderLogMsg(int iErrCode, const char *zFormat, va_list ap){
   StrAccum acc;                          /* String accumulator */
@@ -1076,67 +1060,6 @@ void sqlite3DebugPrintf(const char *zFormat, ...){
 }
 #endif
 
-#ifdef SQLITE_DEBUG
-/*************************************************************************
-** Routines for implementing the "TreeView" display of hierarchical
-** data structures for debugging.
-**
-** The main entry points (coded elsewhere) are:
-**     sqlite3TreeViewExpr(0, pExpr, 0);
-**     sqlite3TreeViewExprList(0, pList, 0, 0);
-**     sqlite3TreeViewSelect(0, pSelect, 0);
-** Insert calls to those routines while debugging in order to display
-** a diagram of Expr, ExprList, and Select objects.
-**
-*/
-/* Add a new subitem to the tree.  The moreToFollow flag indicates that this
-** is not the last item in the tree. */
-TreeView *sqlite3TreeViewPush(TreeView *p, u8 moreToFollow){
-  if( p==0 ){
-    p = sqlite3_malloc64( sizeof(*p) );
-    if( p==0 ) return 0;
-    memset(p, 0, sizeof(*p));
-  }else{
-    p->iLevel++;
-  }
-  assert( moreToFollow==0 || moreToFollow==1 );
-  if( p->iLevel<sizeof(p->bLine) ) p->bLine[p->iLevel] = moreToFollow;
-  return p;
-}
-/* Finished with one layer of the tree */
-void sqlite3TreeViewPop(TreeView *p){
-  if( p==0 ) return;
-  p->iLevel--;
-  if( p->iLevel<0 ) sqlite3_free(p);
-}
-/* Generate a single line of output for the tree, with a prefix that contains
-** all the appropriate tree lines */
-void sqlite3TreeViewLine(TreeView *p, const char *zFormat, ...){
-  va_list ap;
-  int i;
-  StrAccum acc;
-  char zBuf[500];
-  sqlite3StrAccumInit(&acc, 0, zBuf, sizeof(zBuf), 0);
-  if( p ){
-    for(i=0; i<p->iLevel && i<sizeof(p->bLine)-1; i++){
-      sqlite3StrAccumAppend(&acc, p->bLine[i] ? "|   " : "    ", 4);
-    }
-    sqlite3StrAccumAppend(&acc, p->bLine[i] ? "|-- " : "'-- ", 4);
-  }
-  va_start(ap, zFormat);
-  sqlite3VXPrintf(&acc, 0, zFormat, ap);
-  va_end(ap);
-  if( zBuf[acc.nChar-1]!='\n' ) sqlite3StrAccumAppend(&acc, "\n", 1);
-  sqlite3StrAccumFinish(&acc);
-  fprintf(stdout,"%s", zBuf);
-  fflush(stdout);
-}
-/* Shorthand for starting a new tree item that consists of a single label */
-void sqlite3TreeViewItem(TreeView *p, const char *zLabel, u8 moreToFollow){
-  p = sqlite3TreeViewPush(p, moreToFollow);
-  sqlite3TreeViewLine(p, "%s", zLabel);
-}
-#endif /* SQLITE_DEBUG */
 
 /*
 ** variable-argument wrapper around sqlite3VXPrintf().

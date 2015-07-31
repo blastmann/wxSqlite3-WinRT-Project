@@ -3015,6 +3015,12 @@ static int winLock(sqlite3_file *id, int locktype){
     return SQLITE_OK;
   }
 
+  /* Do not allow any kind of write-lock on a read-only database
+  */
+  if( (pFile->ctrlFlags & WINFILE_RDONLY)!=0 && locktype>=RESERVED_LOCK ){
+    return SQLITE_IOERR_LOCK;
+  }
+
   /* Make sure the locking sequence is correct
   */
   assert( pFile->locktype!=NO_LOCK || locktype==SHARED_LOCK );
@@ -3384,14 +3390,14 @@ static SYSTEM_INFO winSysInfo;
 **   winShmLeaveMutex()
 */
 static void winShmEnterMutex(void){
-  sqlite3_mutex_enter(sqlite3MutexAlloc(SQLITE_MUTEX_STATIC_MASTER));
+  sqlite3_mutex_enter(sqlite3MutexAlloc(SQLITE_MUTEX_STATIC_VFS1));
 }
 static void winShmLeaveMutex(void){
-  sqlite3_mutex_leave(sqlite3MutexAlloc(SQLITE_MUTEX_STATIC_MASTER));
+  sqlite3_mutex_leave(sqlite3MutexAlloc(SQLITE_MUTEX_STATIC_VFS1));
 }
 #ifndef NDEBUG
 static int winShmMutexHeld(void) {
-  return sqlite3_mutex_held(sqlite3MutexAlloc(SQLITE_MUTEX_STATIC_MASTER));
+  return sqlite3_mutex_held(sqlite3MutexAlloc(SQLITE_MUTEX_STATIC_VFS1));
 }
 #endif
 
@@ -5411,14 +5417,14 @@ static int winRandomness(sqlite3_vfs *pVfs, int nBuf, char *zBuf){
     UUID id;
     memset(&id, 0, sizeof(UUID));
     osUuidCreate(&id);
-    memcpy(zBuf, &id, sizeof(UUID));
+    memcpy(&zBuf[n], &id, sizeof(UUID));
     n += sizeof(UUID);
   }
   if( sizeof(UUID)<=nBuf-n ){
     UUID id;
     memset(&id, 0, sizeof(UUID));
     osUuidCreateSequential(&id);
-    memcpy(zBuf, &id, sizeof(UUID));
+    memcpy(&zBuf[n], &id, sizeof(UUID));
     n += sizeof(UUID);
   }
 #endif
