@@ -108,7 +108,7 @@ XCOMPILE = 0
 # Set this non-0 to use the native libraries paths for cross-compiling
 # the command line tools needed during the compilation process.
 #
-!IFNDEF USE_NATIVE_LIBPATH
+!IFNDEF USE_NATIVE_LIBPATHS
 USE_NATIVE_LIBPATHS = 0
 !ENDIF
 
