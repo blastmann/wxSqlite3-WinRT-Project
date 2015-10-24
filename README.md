@@ -50,8 +50,9 @@ Open the `cmdbuild` folder, I just pack all you need in this folder. In `tool`, 
 
 
 ``` batch
-# If you want to build WinRT 8.1 or UAP ver, you should set "PLATFORMS=x86 x86_amd64 x86_arm"
-# If you want to build WP8.1 ver, set "PLATFORMS=x86 x86_arm"
+# For WinRT 8.1 or UAP version, you should set "PLATFORMS=x86 x86_amd64 x86_arm"
+# For WP8.1 version, set "PLATFORMS=x86 x86_arm"
+# For UAP build, set "USE_WINV100_NSDKLIBPATH=1"
 SET PLATFORMS=x86 x86_amd64 x86_arm
 build-all-msvc.bat build
 ```
