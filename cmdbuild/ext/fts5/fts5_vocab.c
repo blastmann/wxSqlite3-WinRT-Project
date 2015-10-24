@@ -349,7 +349,7 @@ static int fts5VocabNextMethod(sqlite3_vtab_cursor *pCursor){
         i64 iPos = 0;               /* 64-bit position read from poslist */
         int iOff = 0;               /* Current offset within position list */
 
-        rc = sqlite3Fts5IterPoslist(pCsr->pIter, &pPos, &nPos, &dummy);
+        rc = sqlite3Fts5IterPoslist(pCsr->pIter, 0, &pPos, &nPos, &dummy);
         if( rc==SQLITE_OK ){
           if( pTab->eType==FTS5_VOCAB_ROW ){
             while( 0==sqlite3Fts5PoslistNext64(pPos, nPos, &iOff, &iPos) ){
@@ -402,7 +402,7 @@ static int fts5VocabFilterMethod(
   const int flags = FTS5INDEX_QUERY_SCAN;
 
   fts5VocabResetCursor(pCsr);
-  rc = sqlite3Fts5IndexQuery(pCsr->pIndex, 0, 0, flags, &pCsr->pIter);
+  rc = sqlite3Fts5IndexQuery(pCsr->pIndex, 0, 0, flags, 0, &pCsr->pIter);
   if( rc==SQLITE_OK ){
     rc = fts5VocabNextMethod(pCursor);
   }
@@ -442,8 +442,7 @@ static int fts5VocabColumnMethod(
 
 /* 
 ** This is the xRowid method. The SQLite core calls this routine to
-** retrieve the rowid for the current row of the result set. fts5
-** exposes %_content.docid as the rowid for the virtual table. The
+** retrieve the rowid for the current row of the result set. The
 ** rowid should be written to *pRowid.
 */
 static int fts5VocabRowidMethod(

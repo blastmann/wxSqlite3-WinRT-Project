@@ -17,7 +17,6 @@ source $testdir/tester.tcl
 
 catch { 
   sqlite3_fts5_may_be_corrupt 0 
-  append G(perm:dbconfig) "; load_static_extension \$::dbhandle fts5"
   reset_db
 }
 
@@ -93,6 +92,10 @@ proc fts5_test_queryphrase {cmd} {
   set res
 }
 
+proc fts5_test_phrasecount {cmd} {
+  $cmd xPhraseCount
+}
+
 proc fts5_test_all {cmd} {
   set res [list]
   lappend res columnsize      [fts5_test_columnsize $cmd]
@@ -115,6 +118,7 @@ proc fts5_aux_test_functions {db} {
     fts5_test_all
 
     fts5_test_queryphrase
+    fts5_test_phrasecount
   } {
     sqlite3_fts5_create_function $db $f $f
   }
@@ -288,5 +292,38 @@ proc OR {args} {
 proc NOT {a b} {
   if {[llength $b]>0} { return [list] }
   return $a
+}
+
+#-------------------------------------------------------------------------
+# This command is similar to [split], except that it also provides the
+# start and end offsets of each token. For example:
+#
+#   [fts5_tokenize_split "abc d ef"] -> {abc 0 3 d 4 5 ef 6 8}
+#
+
+proc gobble_whitespace {textvar} {
+  upvar $textvar t
+  regexp {([ ]*)(.*)} $t -> space t
+  return [string length $space]
+}
+
+proc gobble_text {textvar wordvar} {
+  upvar $textvar t
+  upvar $wordvar w
+  regexp {([^ ]*)(.*)} $t -> w t
+  return [string length $w]
+}
+
+proc fts5_tokenize_split {text} {
+  set token ""
+  set ret [list]
+  set iOff [gobble_whitespace text]
+  while {[set nToken [gobble_text text word]]} {
+    lappend ret $word $iOff [expr $iOff+$nToken]
+    incr iOff $nToken
+    incr iOff [gobble_whitespace text]
+  }
+
+  set ret
 }
 

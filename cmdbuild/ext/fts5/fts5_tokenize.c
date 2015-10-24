@@ -116,8 +116,9 @@ static void asciiFold(char *aOut, const char *aIn, int nByte){
 static int fts5AsciiTokenize(
   Fts5Tokenizer *pTokenizer,
   void *pCtx,
+  int flags,
   const char *pText, int nText,
-  int (*xToken)(void*, const char*, int nToken, int iStart, int iEnd)
+  int (*xToken)(void*, int, const char*, int nToken, int iStart, int iEnd)
 ){
   AsciiTokenizer *p = (AsciiTokenizer*)pTokenizer;
   int rc = SQLITE_OK;
@@ -158,7 +159,7 @@ static int fts5AsciiTokenize(
     asciiFold(pFold, &pText[is], nByte);
 
     /* Invoke the token callback */
-    rc = xToken(pCtx, pFold, nByte, is, ie);
+    rc = xToken(pCtx, 0, pFold, nByte, is, ie);
     is = ie+1;
   }
   
@@ -385,8 +386,9 @@ static int fts5UnicodeIsAlnum(Unicode61Tokenizer *p, int iCode){
 static int fts5UnicodeTokenize(
   Fts5Tokenizer *pTokenizer,
   void *pCtx,
+  int flags,
   const char *pText, int nText,
-  int (*xToken)(void*, const char*, int nToken, int iStart, int iEnd)
+  int (*xToken)(void*, int, const char*, int nToken, int iStart, int iEnd)
 ){
   Unicode61Tokenizer *p = (Unicode61Tokenizer*)pTokenizer;
   int rc = SQLITE_OK;
@@ -475,7 +477,7 @@ static int fts5UnicodeTokenize(
     }
 
     /* Invoke the token callback */
-    rc = xToken(pCtx, aFold, zOut-aFold, is, ie);
+    rc = xToken(pCtx, 0, aFold, zOut-aFold, is, ie); 
   }
   
  tokenize_done:
@@ -537,7 +539,9 @@ static int fts5PorterCreate(
     rc = SQLITE_NOMEM;
   }
   if( rc==SQLITE_OK ){
-    rc = pRet->tokenizer.xCreate(pUserdata, 0, 0, &pRet->pTokenizer);
+    int nArg2 = (nArg>0 ? nArg-1 : 0);
+    const char **azArg2 = (nArg2 ? &azArg[1] : 0);
+    rc = pRet->tokenizer.xCreate(pUserdata, azArg2, nArg2, &pRet->pTokenizer);
   }
 
   if( rc!=SQLITE_OK ){
@@ -551,7 +555,7 @@ static int fts5PorterCreate(
 typedef struct PorterContext PorterContext;
 struct PorterContext {
   void *pCtx;
-  int (*xToken)(void*, const char*, int, int, int);
+  int (*xToken)(void*, int, const char*, int, int, int);
   char *aBuf;
 };
 
@@ -1116,6 +1120,7 @@ static void fts5PorterStep1A(char *aBuf, int *pnBuf){
 
 static int fts5PorterCb(
   void *pCtx, 
+  int tflags,
   const char *pToken, 
   int nToken, 
   int iStart, 
@@ -1173,10 +1178,10 @@ static int fts5PorterCb(
     nBuf--;
   }
 
-  return p->xToken(p->pCtx, aBuf, nBuf, iStart, iEnd);
+  return p->xToken(p->pCtx, tflags, aBuf, nBuf, iStart, iEnd);
 
  pass_through:
-  return p->xToken(p->pCtx, pToken, nToken, iStart, iEnd);
+  return p->xToken(p->pCtx, tflags, pToken, nToken, iStart, iEnd);
 }
 
 /*
@@ -1185,8 +1190,9 @@ static int fts5PorterCb(
 static int fts5PorterTokenize(
   Fts5Tokenizer *pTokenizer,
   void *pCtx,
+  int flags,
   const char *pText, int nText,
-  int (*xToken)(void*, const char*, int nToken, int iStart, int iEnd)
+  int (*xToken)(void*, int, const char*, int nToken, int iStart, int iEnd)
 ){
   PorterTokenizer *p = (PorterTokenizer*)pTokenizer;
   PorterContext sCtx;
@@ -1194,7 +1200,7 @@ static int fts5PorterTokenize(
   sCtx.pCtx = pCtx;
   sCtx.aBuf = p->aBuf;
   return p->tokenizer.xTokenize(
-      p->pTokenizer, (void*)&sCtx, pText, nText, fts5PorterCb
+      p->pTokenizer, (void*)&sCtx, flags, pText, nText, fts5PorterCb
   );
 }
 
@@ -1223,7 +1229,7 @@ int sqlite3Fts5TokenizerInit(fts5_api *pApi){
     );
   }
 
-  return SQLITE_OK;
+  return rc;
 }
 
 

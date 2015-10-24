@@ -81,6 +81,20 @@ extern int sqlite3_fts5_may_be_corrupt;
 #endif
 
 typedef struct Fts5Global Fts5Global;
+typedef struct Fts5Colset Fts5Colset;
+
+/* If a NEAR() clump or phrase may only match a specific set of columns, 
+** then an object of the following type is used to record the set of columns.
+** Each entry in the aiCol[] array is a column that may be matched.
+**
+** This object is used by fts5_expr.c and fts5_index.c.
+*/
+struct Fts5Colset {
+  int nCol;
+  int aiCol[1];
+};
+
+
 
 /**************************************************************************
 ** Interface to code in fts5_config.c. fts5_config.c contains contains code
@@ -117,6 +131,12 @@ typedef struct Fts5Config Fts5Config;
 ** bColumnsize:
 **   True if the %_docsize table is created.
 **
+** bPrefixIndex:
+**   This is only used for debugging. If set to false, any prefix indexes
+**   are ignored. This value is configured using:
+**
+**       INSERT INTO tbl(tbl, rank) VALUES('prefix-index', $bPrefixIndex);
+**
 */
 struct Fts5Config {
   sqlite3 *db;                    /* Database handle */
@@ -145,10 +165,14 @@ struct Fts5Config {
 
   /* If non-NULL, points to sqlite3_vtab.base.zErrmsg. Often NULL. */
   char **pzErrmsg;
+
+#ifdef SQLITE_DEBUG
+  int bPrefixIndex;               /* True to use prefix-indexes */
+#endif
 };
 
 /* Current expected value of %_config table 'version' field */
-#define FTS5_CURRENT_VERSION 3
+#define FTS5_CURRENT_VERSION 4
 
 #define FTS5_CONTENT_NORMAL   0
 #define FTS5_CONTENT_NONE     1
@@ -166,9 +190,10 @@ int sqlite3Fts5ConfigDeclareVtab(Fts5Config *pConfig);
 
 int sqlite3Fts5Tokenize(
   Fts5Config *pConfig,            /* FTS5 Configuration object */
+  int flags,                      /* FTS5_TOKENIZE_* flags */
   const char *pText, int nText,   /* Text to tokenize */
   void *pCtx,                     /* Context passed to xToken() */
-  int (*xToken)(void*, const char*, int, int, int)    /* Callback */
+  int (*xToken)(void*, int, const char*, int, int, int)    /* Callback */
 );
 
 void sqlite3Fts5Dequote(char *z);
@@ -229,17 +254,17 @@ int sqlite3Fts5Get32(const u8*);
 typedef struct Fts5PoslistReader Fts5PoslistReader;
 struct Fts5PoslistReader {
   /* Variables used only by sqlite3Fts5PoslistIterXXX() functions. */
-  int iCol;                       /* If (iCol>=0), this column only */
   const u8 *a;                    /* Position list to iterate through */
   int n;                          /* Size of buffer at a[] in bytes */
   int i;                          /* Current offset in a[] */
 
+  u8 bFlag;                       /* For client use (any custom purpose) */
+
   /* Output variables */
-  int bEof;                       /* Set to true at EOF */
+  u8 bEof;                        /* Set to true at EOF */
   i64 iPos;                       /* (iCol<<32) + iPos */
 };
 int sqlite3Fts5PoslistReaderInit(
-  int iCol,                       /* If (iCol>=0), this column only */
   const u8 *a, int n,             /* Poslist buffer to iterate through */
   Fts5PoslistReader *pIter        /* Iterator object to initialize */
 );
@@ -292,7 +317,7 @@ int sqlite3Fts5IndexClose(Fts5Index *p);
 
 /*
 ** for(
-**   pIter = sqlite3Fts5IndexQuery(p, "token", 5, 0);
+**   sqlite3Fts5IndexQuery(p, "token", 5, 0, 0, &pIter);
 **   0==sqlite3Fts5IterEof(pIter);
 **   sqlite3Fts5IterNext(pIter)
 ** ){
@@ -301,14 +326,15 @@ int sqlite3Fts5IndexClose(Fts5Index *p);
 */
 
 /*
-** Open a new iterator to iterate though all docids that match the 
+** Open a new iterator to iterate though all rowids that match the 
 ** specified token or token prefix.
 */
 int sqlite3Fts5IndexQuery(
   Fts5Index *p,                   /* FTS index to query */
   const char *pToken, int nToken, /* Token (or prefix) to query for */
   int flags,                      /* Mask of FTS5INDEX_QUERY_X flags */
-  Fts5IndexIter **ppIter
+  Fts5Colset *pColset,            /* Match these columns only */
+  Fts5IndexIter **ppIter          /* OUT: New iterator object */
 );
 
 /*
@@ -319,7 +345,7 @@ int sqlite3Fts5IterEof(Fts5IndexIter*);
 int sqlite3Fts5IterNext(Fts5IndexIter*);
 int sqlite3Fts5IterNextFrom(Fts5IndexIter*, i64 iMatch);
 i64 sqlite3Fts5IterRowid(Fts5IndexIter*);
-int sqlite3Fts5IterPoslist(Fts5IndexIter*, const u8 **pp, int *pn, i64 *pi);
+int sqlite3Fts5IterPoslist(Fts5IndexIter*,Fts5Colset*, const u8**, int*, i64*);
 int sqlite3Fts5IterPoslistBuffer(Fts5IndexIter *pIter, Fts5Buffer *pBuf);
 
 /*
@@ -357,6 +383,7 @@ int sqlite3Fts5IndexWrite(
 */
 int sqlite3Fts5IndexBeginWrite(
   Fts5Index *p,                   /* Index to write to */
+  int bDelete,                    /* True if current operation is a delete */
   i64 iDocid                      /* Docid to add or remove data from */
 );
 
@@ -375,15 +402,9 @@ int sqlite3Fts5IndexSync(Fts5Index *p, int bCommit);
 int sqlite3Fts5IndexRollback(Fts5Index *p);
 
 /*
-** Retrieve and clear the current error code, respectively.
+** Get or set the "averages" values.
 */
-int sqlite3Fts5IndexErrcode(Fts5Index*);
-void sqlite3Fts5IndexReset(Fts5Index*);
-
-/*
-** Get or set the "averages" record.
-*/
-int sqlite3Fts5IndexGetAverages(Fts5Index *p, Fts5Buffer *pBuf);
+int sqlite3Fts5IndexGetAverages(Fts5Index *p, i64 *pnRow, i64 *anSize);
 int sqlite3Fts5IndexSetAverages(Fts5Index *p, const u8*, int);
 
 /*
@@ -426,6 +447,15 @@ int sqlite3Fts5PutVarint(unsigned char *p, u64 v);
 
 #define fts5GetVarint32(a,b) sqlite3Fts5GetVarint32(a,(u32*)&b)
 #define fts5GetVarint    sqlite3Fts5GetVarint
+
+#define fts5FastGetVarint32(a, iOff, nVal) {      \
+  nVal = (a)[iOff++];                             \
+  if( nVal & 0x80 ){                              \
+    iOff--;                                       \
+    iOff += fts5GetVarint32(&(a)[iOff], nVal);    \
+  }                                               \
+}
+
 
 /*
 ** End of interface to code in fts5_varint.c.
@@ -519,7 +549,8 @@ int sqlite3Fts5DropAll(Fts5Config*);
 int sqlite3Fts5CreateTable(Fts5Config*, const char*, const char*, int, char **);
 
 int sqlite3Fts5StorageDelete(Fts5Storage *p, i64);
-int sqlite3Fts5StorageInsert(Fts5Storage *p, sqlite3_value **apVal, int, i64*);
+int sqlite3Fts5StorageContentInsert(Fts5Storage *p, sqlite3_value**, i64*);
+int sqlite3Fts5StorageIndexInsert(Fts5Storage *p, sqlite3_value**, i64);
 
 int sqlite3Fts5StorageIntegrity(Fts5Storage *p);
 
@@ -558,7 +589,6 @@ typedef struct Fts5Parse Fts5Parse;
 typedef struct Fts5Token Fts5Token;
 typedef struct Fts5ExprPhrase Fts5ExprPhrase;
 typedef struct Fts5ExprNearset Fts5ExprNearset;
-typedef struct Fts5ExprColset Fts5ExprColset;
 
 struct Fts5Token {
   const char *p;                  /* Token text (not NULL terminated) */
@@ -596,7 +626,7 @@ int sqlite3Fts5ExprPhraseCount(Fts5Expr*);
 int sqlite3Fts5ExprPhraseSize(Fts5Expr*, int iPhrase);
 int sqlite3Fts5ExprPoslist(Fts5Expr*, int, const u8 **);
 
-int sqlite3Fts5ExprPhraseExpr(Fts5Config*, Fts5Expr*, int, Fts5Expr**);
+int sqlite3Fts5ExprClonePhrase(Fts5Config*, Fts5Expr*, int, Fts5Expr**);
 
 /*******************************************
 ** The fts5_expr.c API above this point is used by the other hand-written
@@ -626,9 +656,9 @@ Fts5ExprNearset *sqlite3Fts5ParseNearset(
   Fts5ExprPhrase* 
 );
 
-Fts5ExprColset *sqlite3Fts5ParseColset(
+Fts5Colset *sqlite3Fts5ParseColset(
   Fts5Parse*, 
-  Fts5ExprColset*, 
+  Fts5Colset*, 
   Fts5Token *
 );
 
@@ -637,7 +667,7 @@ void sqlite3Fts5ParseNearsetFree(Fts5ExprNearset*);
 void sqlite3Fts5ParseNodeFree(Fts5ExprNode*);
 
 void sqlite3Fts5ParseSetDistance(Fts5Parse*, Fts5ExprNearset*, Fts5Token*);
-void sqlite3Fts5ParseSetColset(Fts5Parse*, Fts5ExprNearset*, Fts5ExprColset*);
+void sqlite3Fts5ParseSetColset(Fts5Parse*, Fts5ExprNearset*, Fts5Colset*);
 void sqlite3Fts5ParseFinished(Fts5Parse *pParse, Fts5ExprNode *p);
 void sqlite3Fts5ParseNear(Fts5Parse *pParse, Fts5Token*);
 
@@ -663,17 +693,6 @@ int sqlite3Fts5AuxInit(fts5_api*);
 int sqlite3Fts5TokenizerInit(fts5_api*);
 /*
 ** End of interface to code in fts5_tokenizer.c.
-**************************************************************************/
-
-/**************************************************************************
-** Interface to code in fts5_sorter.c. 
-*/
-typedef struct Fts5Sorter Fts5Sorter;
-
-int sqlite3Fts5SorterNew(Fts5Expr *pExpr, Fts5Sorter **pp);
-
-/*
-** End of interface to code in fts5_sorter.c.
 **************************************************************************/
 
 /**************************************************************************
